@@ -518,7 +518,7 @@ def _sqlite_path(database_url: str) -> str:
         return ":memory:"
     prefix = "sqlite:///"
     if database_url.startswith(prefix):
-        return database_url[len(prefix) - 1 :]
+        return database_url[len(prefix) :]
     return database_url
 
 
@@ -627,4 +627,3 @@ def _event_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "snoozed_until": row["snoozed_until"],
         "resolved_at": row["resolved_at"],
     }
-

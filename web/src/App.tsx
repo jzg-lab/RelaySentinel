@@ -3,6 +3,8 @@ import { initialAlerts, notificationChannels, pools, upstreams, type AlertItem, 
 import { isQuotaBelowThreshold, predictHoursRemaining } from './domain/quota';
 
 type Tab = 'home' | 'upstreams' | 'pools' | 'notifications' | 'settings';
+type DefaultBusinessView = 'upstreams' | 'pools';
+type AddTargetKind = 'upstream' | 'pool';
 
 const tabs: Array<{ id: Tab; label: string; icon: string }> = [
   { id: 'home', label: '工作台', icon: '⌂' },
@@ -102,19 +104,43 @@ function UpstreamCard({ upstream }: { upstream: UpstreamItem }) {
   );
 }
 
+function AddTargetCard({ kind }: { kind: AddTargetKind }) {
+  const isUpstream = kind === 'upstream';
+
+  return (
+    <article className="add-card">
+      <div>
+        <h3>{isUpstream ? '添加上游' : '添加自己的中转站'}</h3>
+        <p>
+          {isUpstream
+            ? '上游是你向别人购买的外部中转，先选择 New API 或 Sub2API。'
+            : '号池是你自己的中转站资源，默认选择 New API 或 Sub2API。CPA/CLIProxyAPI 后续作为高级额度来源接入。'}
+        </p>
+      </div>
+      <div className="choice-row">
+        <button>New API</button>
+        <button>Sub2API</button>
+      </div>
+    </article>
+  );
+}
+
 function HomePage({
   alerts,
+  defaultBusinessView,
   onResolve,
   onSnooze,
   onRerun
 }: {
   alerts: AlertItem[];
+  defaultBusinessView: DefaultBusinessView;
   onResolve: (id: string) => void;
   onSnooze: (id: string) => void;
   onRerun: (id: string) => void;
 }) {
   const activeAlerts = alerts.filter((alert) => !alert.acknowledged && !alert.snoozed);
   const primaryAlert = activeAlerts[0];
+  const showUpstreamsFirst = defaultBusinessView === 'upstreams';
 
   return (
     <>
@@ -135,10 +161,23 @@ function HomePage({
         <div className="mini"><span>未处理</span><strong>{activeAlerts.length}</strong></div>
       </section>
 
-      <SectionTitle title="号池快照" hint="每 1.5 小时预测" />
-      <div className="list">
-        {pools.map((pool) => <PoolQuotaCard key={pool.id} pool={pool} />)}
-      </div>
+      {showUpstreamsFirst ? (
+        <>
+          <SectionTitle title="上游中转" hint="余额低的优先处理" />
+          <div className="list">{upstreams.map((item) => <UpstreamCard key={item.id} upstream={item} />)}</div>
+          <SectionTitle title="号池快照" hint="每 1.5 小时预测" />
+          <div className="list compact-list">
+            {pools.slice(0, 1).map((pool) => <PoolQuotaCard key={pool.id} pool={pool} />)}
+          </div>
+        </>
+      ) : (
+        <>
+          <SectionTitle title="号池快照" hint="每 1.5 小时预测" />
+          <div className="list">{pools.map((pool) => <PoolQuotaCard key={pool.id} pool={pool} />)}</div>
+          <SectionTitle title="上游中转" hint="余额低的优先处理" />
+          <div className="list compact-list">{upstreams.slice(0, 2).map((item) => <UpstreamCard key={item.id} upstream={item} />)}</div>
+        </>
+      )}
     </>
   );
 }
@@ -155,12 +194,16 @@ function SectionTitle({ title, hint }: { title: string; hint: string }) {
 function AppContent({
   tab,
   alerts,
+  defaultBusinessView,
+  onDefaultBusinessViewChange,
   onResolve,
   onSnooze,
   onRerun
 }: {
   tab: Tab;
   alerts: AlertItem[];
+  defaultBusinessView: DefaultBusinessView;
+  onDefaultBusinessViewChange: (view: DefaultBusinessView) => void;
   onResolve: (id: string) => void;
   onSnooze: (id: string) => void;
   onRerun: (id: string) => void;
@@ -169,7 +212,10 @@ function AppContent({
     return (
       <>
         <SectionTitle title="上游续费" hint="余额低的优先" />
-        <div className="list">{upstreams.map((item) => <UpstreamCard key={item.id} upstream={item} />)}</div>
+        <div className="list">
+          <AddTargetCard kind="upstream" />
+          {upstreams.map((item) => <UpstreamCard key={item.id} upstream={item} />)}
+        </div>
       </>
     );
   }
@@ -178,7 +224,10 @@ function AppContent({
     return (
       <>
         <SectionTitle title="号池巡检" hint="健康 10 分钟，额度 1.5 小时" />
-        <div className="list">{pools.map((pool) => <PoolQuotaCard key={pool.id} pool={pool} />)}</div>
+        <div className="list">
+          <AddTargetCard kind="pool" />
+          {pools.map((pool) => <PoolQuotaCard key={pool.id} pool={pool} />)}
+        </div>
       </>
     );
   }
@@ -207,6 +256,26 @@ function AppContent({
       <>
         <SectionTitle title="设置" hint="私有部署优先" />
         <div className="list">
+          <article className="item-card setting-card">
+            <div>
+              <h3>默认首页</h3>
+              <p>工作台第一组业务卡片默认显示：{defaultBusinessView === 'upstreams' ? '上游中转' : '号池巡检'}。</p>
+            </div>
+            <div className="segmented" aria-label="默认首页">
+              <button
+                className={defaultBusinessView === 'upstreams' ? 'selected' : ''}
+                onClick={() => onDefaultBusinessViewChange('upstreams')}
+              >
+                上游
+              </button>
+              <button
+                className={defaultBusinessView === 'pools' ? 'selected' : ''}
+                onClick={() => onDefaultBusinessViewChange('pools')}
+              >
+                号池
+              </button>
+            </div>
+          </article>
           <article className="item-card">
             <div>
               <h3>添加到主屏幕</h3>
@@ -225,12 +294,21 @@ function AppContent({
     );
   }
 
-  return <HomePage alerts={alerts} onResolve={onResolve} onSnooze={onSnooze} onRerun={onRerun} />;
+  return (
+    <HomePage
+      alerts={alerts}
+      defaultBusinessView={defaultBusinessView}
+      onResolve={onResolve}
+      onSnooze={onSnooze}
+      onRerun={onRerun}
+    />
+  );
 }
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [alerts, setAlerts] = useState<AlertItem[]>(initialAlerts);
+  const [defaultBusinessView, setDefaultBusinessView] = useState<DefaultBusinessView>('upstreams');
   const [toast, setToast] = useState('哨兵服务在线，2 分钟前同步');
 
   const title = useMemo(() => {
@@ -253,6 +331,11 @@ export default function App() {
         <AppContent
           tab={activeTab}
           alerts={alerts}
+          defaultBusinessView={defaultBusinessView}
+          onDefaultBusinessViewChange={(view) => {
+            setDefaultBusinessView(view);
+            setToast(view === 'upstreams' ? '默认首页已切到上游中转' : '默认首页已切到号池巡检');
+          }}
           onResolve={(id) => updateAlert(id, { acknowledged: true }, '已标记处理，后续恢复时会通知')}
           onSnooze={(id) => updateAlert(id, { snoozed: true }, '已暂停提醒 6 小时')}
           onRerun={(id) => updateAlert(id, {}, '已发起复查，结果会写入事件流')}

@@ -1042,7 +1042,7 @@
           <div class="flow-step">
             <span class="pill">02</span>
             <strong>Adapters</strong>
-            <span>封装 New API、Sub2API、CLIProxyAPI 的差异。</span>
+            <span>上游适配 New API/Sub2API；号池高级额度来源再接 CLIProxyAPI/CPA。</span>
           </div>
           <div class="flow-step">
             <span class="pill">03</span>
@@ -1075,19 +1075,19 @@
             <p>工作台总览：低余额数、账号健康、5H/7D 可用时长。</p>
           </div>
           <div class="api-card">
-            <code>POST /api/instances</code>
-            <p>添加 New API、Sub2API、CLIProxyAPI 实例和凭证引用。</p>
+            <code>POST /api/upstreams</code>
+            <p>手动添加外部上游，仅 New API/Sub2API。</p>
           </div>
           <div class="api-card">
-            <code>POST /api/monitor-targets</code>
-            <p>创建上游续费目标或号池巡检目标。</p>
+            <code>POST /api/pools</code>
+            <p>手动添加自己的中转站或号池，默认 New API/Sub2API。</p>
           </div>
           <div class="api-card">
-            <code>POST /api/checks/:id/run</code>
-            <p>手动触发一次检查，用于测试连接和规则。</p>
+            <code>POST /api/pools/:id/quota-sources</code>
+            <p>给号池接入 CLIProxyAPI/CPA 等高级额度来源。</p>
           </div>
           <div class="api-card">
-            <code>GET /api/pool-snapshots</code>
+            <code>GET /api/pools/:id/snapshots</code>
             <p>查询账号成功/失败、5H/7D 快照和可用时长预测。</p>
           </div>
           <div class="api-card">
