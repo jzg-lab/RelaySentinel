@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f7fb">
+  <title>RelaySentinel Android PWA Prototype</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --line: #e5e7eb;
+      --text: #111827;
+      --muted: #6b7280;
+      --soft: #f0f2f6;
+      --blue: #0a84ff;
+      --green: #30d158;
+      --orange: #ff9f0a;
+      --red: #ff453a;
+      --shadow: 0 14px 34px rgba(17, 24, 39, 0.10);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      letter-spacing: 0;
+    }
+
+    button {
+      font: inherit;
+      border: 0;
+      cursor: pointer;
+    }
+
+    .app {
+      max-width: 460px;
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 14px 14px 92px;
+    }
+
+    .statusbar {
+      height: env(safe-area-inset-top);
+    }
+
+    .top {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      margin: -14px -14px 12px;
+      padding: 14px 14px 10px;
+      background: rgba(246, 247, 251, 0.84);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+      border-bottom: 1px solid rgba(229, 231, 235, 0.72);
+    }
+
+    .top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .eyebrow {
+      color: var(--muted);
+      font-size: 12px;
+      margin: 0 0 4px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 26px;
+      line-height: 1.1;
+    }
+
+    .icon-btn {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 15px;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.76);
+      border: 1px solid rgba(229, 231, 235, 0.8);
+    }
+
+    .icon-btn svg,
+    .action svg,
+    .tab svg {
+      width: 19px;
+      height: 19px;
+    }
+
+    .sync-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 4px rgba(48, 209, 88, 0.14);
+    }
+
+    .dot.orange {
+      background: var(--orange);
+      box-shadow: 0 0 0 4px rgba(255, 159, 10, 0.15);
+    }
+
+    .dot.red {
+      background: var(--red);
+      box-shadow: 0 0 0 4px rgba(255, 69, 58, 0.14);
+    }
+
+    .section {
+      margin: 16px 0;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      gap: 12px;
+    }
+
+    .section-title h2 {
+      margin: 0;
+      font-size: 17px;
+    }
+
+    .section-title span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(229, 231, 235, 0.9);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .risk-card {
+      padding: 18px;
+      background: #111827;
+      color: white;
+    }
+
+    .risk-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .risk-top h2 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .risk-top p {
+      margin: 6px 0 0;
+      color: rgba(255, 255, 255, 0.68);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      white-space: nowrap;
+      color: #111827;
+      background: #ffd60a;
+    }
+
+    .risk-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .risk-metric {
+      padding: 12px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.10);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .risk-metric span {
+      display: block;
+      color: rgba(255, 255, 255, 0.64);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .risk-metric strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .action {
+      min-height: 44px;
+      border-radius: 15px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      color: white;
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .action.primary {
+      background: var(--blue);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .mini {
+      min-height: 96px;
+      padding: 13px;
+      border-radius: 22px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 24px rgba(17, 24, 39, 0.06);
+    }
+
+    .mini span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+
+    .mini strong {
+      display: block;
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+      border-radius: 22px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 24px rgba(17, 24, 39, 0.06);
+    }
+
+    .item h3 {
+      margin: 0;
+      font-size: 15px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .item p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 999px;
+      color: #166534;
+      background: rgba(48, 209, 88, 0.12);
+      font-size: 12px;
+    }
+
+    .status.warn {
+      color: #92400e;
+      background: rgba(255, 159, 10, 0.14);
+    }
+
+    .status.danger {
+      color: #991b1b;
+      background: rgba(255, 69, 58, 0.12);
+    }
+
+    .quota {
+      padding: 16px;
+    }
+
+    .quota-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      gap: 12px;
+    }
+
+    .quota-head h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .bar {
+      height: 12px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      overflow: hidden;
+      margin: 12px 0;
+    }
+
+    .bar span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--orange);
+    }
+
+    .kv {
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 13px;
+      padding: 7px 0;
+      border-bottom: 1px solid #f0f2f6;
+    }
+
+    .kv:last-child {
+      border-bottom: 0;
+    }
+
+    .kv strong {
+      color: var(--text);
+    }
+
+    .bottom-nav {
+      position: fixed;
+      left: 50%;
+      bottom: 14px;
+      transform: translateX(-50%);
+      width: min(432px, calc(100vw - 24px));
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      padding: 8px;
+      border-radius: 26px;
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid rgba(229, 231, 235, 0.82);
+      box-shadow: 0 20px 44px rgba(17, 24, 39, 0.16);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+    }
+
+    .tab {
+      min-height: 52px;
+      display: grid;
+      place-items: center;
+      gap: 3px;
+      border-radius: 18px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 11px;
+    }
+
+    .tab.active {
+      color: var(--blue);
+      background: rgba(10, 132, 255, 0.10);
+    }
+
+    .install-tip {
+      padding: 14px;
+      border-radius: 22px;
+      background: #eef6ff;
+      border: 1px solid #d7eaff;
+      color: #1e3a8a;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .fade {
+      animation: fade 420ms ease both;
+    }
+
+    .fade:nth-child(2) { animation-delay: 60ms; }
+    .fade:nth-child(3) { animation-delay: 120ms; }
+    .fade:nth-child(4) { animation-delay: 180ms; }
+
+    @keyframes fade {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (min-width: 720px) {
+      body {
+        background: #e9edf3;
+      }
+
+      .app {
+        margin-top: 24px;
+        margin-bottom: 24px;
+        min-height: calc(100vh - 48px);
+        border-radius: 38px;
+        background: var(--bg);
+        box-shadow: 0 28px 80px rgba(17, 24, 39, 0.18);
+        overflow: hidden;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <div class="statusbar"></div>
+    <header class="top">
+      <div class="top-row">
+        <div>
+          <p class="eyebrow">RelaySentinel</p>
+          <h1>今天要处理</h1>
+        </div>
+        <button class="icon-btn" title="立即刷新">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-2.6-6.4"></path><path d="M21 3v6h-6"></path></svg>
+        </button>
+      </div>
+      <div class="sync-line"><span class="dot orange"></span>哨兵服务在线，2 分钟前同步</div>
+    </header>
+
+    <section class="section fade">
+      <article class="card risk-card">
+        <div class="risk-top">
+          <div>
+            <h2>Codex 主号池快撑不住了</h2>
+            <p>5H 预计还能撑 4.8 小时，低于 5 小时提醒阈值。</p>
+          </div>
+          <span class="badge">需要处理</span>
+        </div>
+        <div class="risk-grid">
+          <div class="risk-metric">
+            <span>账号健康</span>
+            <strong>44/45</strong>
+          </div>
+          <div class="risk-metric">
+            <span>失败账号</span>
+            <strong>1</strong>
+          </div>
+          <div class="risk-metric">
+            <span>5H 可用</span>
+            <strong>4.8h</strong>
+          </div>
+          <div class="risk-metric">
+            <span>7D 可用</span>
+            <strong>31h</strong>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="action primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-2.6-6.4"></path><path d="M21 3v6h-6"></path></svg>
+            复查
+          </button>
+          <button class="action">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"></path></svg>
+            已处理
+          </button>
+          <button class="action">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 8-3 8h18s-3-1-3-8"></path><path d="M10 21h4"></path></svg>
+            暂停
+          </button>
+        </div>
+      </article>
+    </section>
+
+    <section class="section fade">
+      <div class="summary-grid">
+        <div class="mini">
+          <span>上游预警</span>
+          <strong>2</strong>
+        </div>
+        <div class="mini">
+          <span>号池预警</span>
+          <strong>1</strong>
+        </div>
+        <div class="mini">
+          <span>通知渠道</span>
+          <strong>4</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="section fade">
+      <div class="section-title">
+        <h2>上游续费</h2>
+        <span>先处理余额低的</span>
+      </div>
+      <div class="list">
+        <article class="item">
+          <div>
+            <h3>群主 A 的 Sub2API</h3>
+            <p>余额 $4.1，阈值 $10。续费方式：群内 @owner，最低 $20。</p>
+          </div>
+          <span class="status danger"><span class="dot red"></span>联系群主</span>
+        </article>
+        <article class="item">
+          <div>
+            <h3>RunAPI 上游</h3>
+            <p>余额 ¥38.20，阈值 ¥50。可直接打开支付链接。</p>
+          </div>
+          <span class="status warn"><span class="dot orange"></span>去支付</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="section fade">
+      <div class="section-title">
+        <h2>号池巡检</h2>
+        <span>每 10 分钟健康检查</span>
+      </div>
+      <article class="card quota">
+        <div class="quota-head">
+          <h3>Codex 主号池</h3>
+          <span class="status warn"><span class="dot orange"></span>临界</span>
+        </div>
+        <div class="bar"><span style="width: 18%"></span></div>
+        <div class="kv"><span>5H 总剩余</span><strong>18.0%</strong></div>
+        <div class="kv"><span>过去 1 小时</span><strong>3.7%/小时</strong></div>
+        <div class="kv"><span>近 3 小时</span><strong>2.9%/小时</strong></div>
+        <div class="kv"><span>预测可用</span><strong>4.8 小时</strong></div>
+      </article>
+    </section>
+
+    <section class="section fade">
+      <div class="install-tip">
+        安卓使用方式：用 Chrome 打开 RelaySentinel，选择“添加到主屏幕”。之后它会像 App 一样从桌面启动；巡检仍由服务器上的哨兵服务完成。
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Bottom navigation">
+    <button class="tab active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9"></path><path d="M5 10v10h14V10"></path></svg>
+      工作台
+    </button>
+    <button class="tab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16"></path><path d="M4 12h16"></path><path d="M4 17h10"></path></svg>
+      上游
+    </button>
+    <button class="tab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v4"></path><path d="M12 18v4"></path><path d="M2 12h4"></path><path d="M18 12h4"></path></svg>
+      号池
+    </button>
+    <button class="tab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 8-3 8h18s-3-1-3-8"></path><path d="M10 21h4"></path></svg>
+      通知
+    </button>
+    <button class="tab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15.5A3.5 3.5 0 1112 8a3.5 3.5 0 010 7.5z"></path><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 01-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1-1.5 1.7 1.7 0 00-1.9.3l-.1.1A2 2 0 014.2 17l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.5-1 1.7 1.7 0 00-.3-1.9l-.1-.1A2 2 0 017 4.2l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1A2 2 0 0119.8 7l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1h.1a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z"></path></svg>
+      设置
+    </button>
+  </nav>
+</body>
+</html>
