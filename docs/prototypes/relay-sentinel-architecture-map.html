@@ -1,0 +1,1027 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RelaySentinel 项目架构地图</title>
+  <style>
+    :root {
+      --bg: #f4f6f9;
+      --surface: #ffffff;
+      --surface-soft: #f8fafc;
+      --text: #111827;
+      --muted: #64748b;
+      --line: #dbe3ee;
+      --blue: #0a84ff;
+      --green: #16a34a;
+      --amber: #d97706;
+      --red: #dc2626;
+      --cyan: #0891b2;
+      --violet: #7c3aed;
+      --shadow: 0 18px 48px rgba(15, 23, 42, 0.10);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+      letter-spacing: 0;
+    }
+
+    button {
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr) 360px;
+      gap: 18px;
+      padding: 18px;
+    }
+
+    .sidebar,
+    .stage,
+    .inspector {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(219, 227, 238, 0.9);
+      box-shadow: var(--shadow);
+      border-radius: 8px;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 18px;
+      height: calc(100vh - 36px);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .brand {
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand-mark {
+      width: 44px;
+      height: 44px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-weight: 800;
+      background: linear-gradient(135deg, #0a84ff, #16a34a);
+      margin-bottom: 12px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 7px;
+      font-size: 22px;
+      line-height: 1.15;
+    }
+
+    .brand p,
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .tabs {
+      display: grid;
+      gap: 8px;
+    }
+
+    .tab {
+      min-height: 42px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: #334155;
+      text-align: left;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .tab.active {
+      background: #eaf3ff;
+      border-color: #bfdbfe;
+      color: #0f172a;
+      font-weight: 700;
+    }
+
+    .legend {
+      margin-top: auto;
+      padding: 12px;
+      border-radius: 8px;
+      background: var(--surface-soft);
+      border: 1px solid var(--line);
+    }
+
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+
+    .dot.green { background: var(--green); }
+    .dot.amber { background: var(--amber); }
+    .dot.red { background: var(--red); }
+
+    .stage {
+      min-width: 0;
+      padding: 18px;
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 18px;
+      margin-bottom: 14px;
+    }
+
+    .topbar h2 {
+      margin-bottom: 6px;
+      font-size: 28px;
+      line-height: 1.12;
+    }
+
+    .topbar p {
+      max-width: 760px;
+      margin-bottom: 0;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .search {
+      width: 260px;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+
+    .search input {
+      width: 100%;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .metric {
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--surface-soft);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 21px;
+      line-height: 1;
+    }
+
+    .diagram {
+      position: relative;
+      min-height: 620px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(rgba(148, 163, 184, 0.11) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, 0.11) 1px, transparent 1px),
+        #ffffff;
+      background-size: 28px 28px;
+      overflow: hidden;
+    }
+
+    .flow-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .flow {
+      stroke: #94a3b8;
+      stroke-width: 2;
+      fill: none;
+      marker-end: url(#arrow);
+      opacity: 0.72;
+    }
+
+    .flow.primary {
+      stroke: var(--blue);
+      stroke-width: 3;
+      opacity: 0.9;
+    }
+
+    .flow.alert {
+      stroke: var(--amber);
+      stroke-dasharray: 8 7;
+    }
+
+    .node {
+      position: absolute;
+      width: 190px;
+      min-height: 118px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.96);
+      padding: 12px;
+      text-align: left;
+      color: var(--text);
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.10);
+      transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, opacity 160ms ease;
+    }
+
+    .node:hover,
+    .node.active {
+      transform: translateY(-2px);
+      border-color: var(--blue);
+      box-shadow: 0 16px 36px rgba(10, 132, 255, 0.16);
+    }
+
+    .node.dimmed {
+      opacity: 0.28;
+    }
+
+    .node small {
+      display: inline-flex;
+      min-height: 22px;
+      align-items: center;
+      padding: 0 8px;
+      border-radius: 999px;
+      color: #075985;
+      background: #e0f2fe;
+      font-size: 11px;
+      margin-bottom: 8px;
+    }
+
+    .node h3 {
+      font-size: 16px;
+      margin-bottom: 6px;
+    }
+
+    .node p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .owner { left: 34px; top: 232px; }
+    .frontend { left: 270px; top: 72px; }
+    .api { left: 520px; top: 72px; }
+    .domain { left: 520px; top: 272px; }
+    .storage { left: 520px; top: 470px; }
+    .upstream { right: 40px; top: 62px; }
+    .pool { right: 40px; top: 232px; }
+    .notify { right: 40px; top: 430px; }
+
+    .node.frontend small { color: #166534; background: #dcfce7; }
+    .node.api small { color: #1d4ed8; background: #dbeafe; }
+    .node.domain small { color: #7c2d12; background: #ffedd5; }
+    .node.storage small { color: #5b21b6; background: #ede9fe; }
+    .node.upstream small,
+    .node.pool small { color: #0f766e; background: #ccfbf1; }
+    .node.notify small { color: #92400e; background: #fef3c7; }
+
+    .view-panel {
+      display: none;
+      min-height: 620px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: white;
+      padding: 16px;
+    }
+
+    .view-panel.active {
+      display: block;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .info-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: var(--surface-soft);
+    }
+
+    .info-card h3 {
+      margin-bottom: 8px;
+      font-size: 16px;
+    }
+
+    .info-card p,
+    .info-card li {
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 13px;
+    }
+
+    .info-card ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+    }
+
+    .api-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .api-row {
+      display: grid;
+      grid-template-columns: 78px minmax(0, 1fr) 92px;
+      gap: 10px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+      font-size: 13px;
+    }
+
+    .method {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 26px;
+      border-radius: 6px;
+      color: #fff;
+      font-weight: 800;
+      font-size: 11px;
+      background: var(--blue);
+    }
+
+    .method.get { background: var(--green); }
+    .method.patch { background: var(--amber); }
+    .method.delete { background: var(--red); }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      color: #0f172a;
+      overflow-wrap: anywhere;
+    }
+
+    .inspector {
+      position: sticky;
+      top: 18px;
+      height: calc(100vh - 36px);
+      padding: 18px;
+      overflow: auto;
+    }
+
+    .inspector h2 {
+      margin-bottom: 8px;
+      font-size: 22px;
+      line-height: 1.18;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 12px 0 16px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      border-radius: 999px;
+      padding: 0 10px;
+      color: #334155;
+      background: #f1f5f9;
+      border: 1px solid var(--line);
+      font-size: 12px;
+    }
+
+    .section {
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+      margin-top: 14px;
+    }
+
+    .section h3 {
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .section ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .section li {
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+
+    .risk {
+      color: #991b1b;
+      background: #fef2f2;
+      border-color: #fecaca;
+    }
+
+    .ok {
+      color: #166534;
+      background: #ecfdf3;
+      border-color: #bbf7d0;
+    }
+
+    .priority-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .priority {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+
+    .rank {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: white;
+      background: var(--blue);
+      font-weight: 800;
+    }
+
+    .priority strong {
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .priority span {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 1180px) {
+      .shell {
+        grid-template-columns: 230px minmax(0, 1fr);
+      }
+
+      .inspector {
+        grid-column: 1 / -1;
+        position: static;
+        height: auto;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .shell {
+        display: block;
+        padding: 10px;
+      }
+
+      .sidebar,
+      .stage,
+      .inspector {
+        position: static;
+        height: auto;
+        margin-bottom: 10px;
+      }
+
+      .tabs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .topbar,
+      .metrics {
+        display: block;
+      }
+
+      .search {
+        width: 100%;
+        margin-top: 12px;
+      }
+
+      .metric {
+        margin-bottom: 8px;
+      }
+
+      .diagram {
+        min-height: 980px;
+      }
+
+      .node {
+        left: 16px !important;
+        right: auto !important;
+        width: calc(100% - 32px);
+      }
+
+      .owner { top: 20px; }
+      .frontend { top: 150px; }
+      .api { top: 280px; }
+      .domain { top: 410px; }
+      .storage { top: 540px; }
+      .upstream { top: 670px; }
+      .pool { top: 800px; }
+      .notify { top: 930px; }
+
+      .flow-layer {
+        display: none;
+      }
+
+      .cards {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">RS</div>
+        <h1>RelaySentinel 项目架构地图</h1>
+        <p>目标：让你一眼看懂这个中国项目的业务边界、前后端、API、数据流和真正该优先补的能力。</p>
+      </div>
+
+      <nav class="tabs" aria-label="架构视图">
+        <button class="tab active" data-view="overview">总览架构</button>
+        <button class="tab" data-view="frontend">前端理解</button>
+        <button class="tab" data-view="backend">后端拆解</button>
+        <button class="tab" data-view="api">API 地图</button>
+        <button class="tab" data-view="security">数据与安全</button>
+        <button class="tab" data-view="ops">部署运维</button>
+        <button class="tab" data-view="business">赚钱优先级</button>
+      </nav>
+
+      <div class="legend">
+        <strong>怎么看</strong>
+        <div class="legend-row"><span class="dot"></span>蓝色链路：核心 API 数据流</div>
+        <div class="legend-row"><span class="dot green"></span>绿色模块：当前已有实现</div>
+        <div class="legend-row"><span class="dot amber"></span>黄色链路：告警/通知</div>
+        <div class="legend-row"><span class="dot red"></span>红色提示：生产风险</div>
+      </div>
+    </aside>
+
+    <section class="stage">
+      <header class="topbar">
+        <div>
+          <h2 id="viewTitle">总览架构</h2>
+          <p id="viewSubtitle">RelaySentinel 的本质是一个“中转和号池哨兵”：持续知道哪里快断供，提前通知老板处理。</p>
+        </div>
+        <label class="search" aria-label="搜索模块">
+          <span>⌕</span>
+          <input id="searchInput" placeholder="搜索：上游、号池、API、SQLite">
+        </label>
+      </header>
+
+      <div class="metrics">
+        <div class="metric"><span>后端测试</span><strong>39 passed</strong></div>
+        <div class="metric"><span>前端测试</span><strong>6 passed</strong></div>
+        <div class="metric"><span>核心平台</span><strong>New API / Sub2API</strong></div>
+        <div class="metric"><span>V1 边界</span><strong>不自动付款</strong></div>
+      </div>
+
+      <div class="view-panel active" id="overview">
+        <div class="diagram" id="diagram">
+          <svg class="flow-layer" viewBox="0 0 980 620" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L7,3 z" fill="#94a3b8"></path>
+              </marker>
+            </defs>
+            <path class="flow primary" d="M220 292 C280 180, 310 132, 410 132"></path>
+            <path class="flow primary" d="M458 132 C500 132, 520 132, 568 132"></path>
+            <path class="flow" d="M620 190 C620 220, 620 252, 620 272"></path>
+            <path class="flow" d="M620 390 C620 420, 620 444, 620 470"></path>
+            <path class="flow primary" d="M710 132 C790 112, 820 110, 850 122"></path>
+            <path class="flow primary" d="M710 330 C780 312, 810 292, 850 292"></path>
+            <path class="flow alert" d="M710 330 C790 388, 810 442, 850 490"></path>
+            <path class="flow alert" d="M850 500 C690 585, 360 560, 220 310"></path>
+          </svg>
+
+          <button class="node owner active" data-node="owner">
+            <small>业务主人</small>
+            <h3>老板 / 值班人</h3>
+            <p>关心哪里要断供、要不要联系群主、哪里需要续费。</p>
+          </button>
+
+          <button class="node frontend" data-node="frontend">
+            <small>前端</small>
+            <h3>React PWA 预览</h3>
+            <p>移动端工作台、上游、号池、通知、设置；目前以 mock 数据展示体验。</p>
+          </button>
+
+          <button class="node api" data-node="api">
+            <small>后端入口</small>
+            <h3>FastAPI API</h3>
+            <p>资源 CRUD、手动巡检、告警事件、通知渠道、移动端首页。</p>
+          </button>
+
+          <button class="node domain" data-node="domain">
+            <small>领域逻辑</small>
+            <h3>预测与告警规则</h3>
+            <p>额度消耗预测、冷却期、账号健康汇总、due check 选择。</p>
+          </button>
+
+          <button class="node storage" data-node="storage">
+            <small>数据</small>
+            <h3>SQLite + 凭证封存</h3>
+            <p>保存上游、号池、通知渠道、告警事件；不返回明文密码/token。</p>
+          </button>
+
+          <button class="node upstream" data-node="upstream">
+            <small>外部服务</small>
+            <h3>外部上游中转</h3>
+            <p>New API / Sub2API。老板向别人购买，重点看余额是否低于阈值。</p>
+          </button>
+
+          <button class="node pool" data-node="pool">
+            <small>自营资源</small>
+            <h3>自己的号池</h3>
+            <p>New API / Sub2API 号池；CLIProxyAPI/CPA 只能作为额度来源挂载。</p>
+          </button>
+
+          <button class="node notify" data-node="notify">
+            <small>通知</small>
+            <h3>Webhook 告警</h3>
+            <p>低余额、额度快耗尽、账号失败时提醒；V1 默认 dry-run 更安全。</p>
+          </button>
+        </div>
+      </div>
+
+      <div class="view-panel" id="frontend">
+        <div class="cards">
+          <article class="info-card">
+            <h3>前端现在是什么</h3>
+            <p>当前 `web/` 是 React + TypeScript + Vite 的移动端 PWA 预览。它展示老板每天打开手机时想看的东西：未处理告警、上游余额、号池额度、通知渠道。</p>
+          </article>
+          <article class="info-card">
+            <h3>前端还缺什么</h3>
+            <p>目前主要用 `web/src/data/mockData.ts`，还没有完整接入真实后端 API。下一步要补 API client、加载/错误状态、表单提交和告警操作回写。</p>
+          </article>
+          <article class="info-card">
+            <h3>关键文件</h3>
+            <ul>
+              <li><code>web/src/App.tsx</code>：PWA 页面和交互</li>
+              <li><code>web/src/domain/quota.ts</code>：前端额度计算</li>
+              <li><code>web/src/data/mockData.ts</code>：演示数据</li>
+              <li><code>web/public/manifest.webmanifest</code>：PWA 安装信息</li>
+            </ul>
+          </article>
+          <article class="info-card">
+            <h3>我会优先改什么</h3>
+            <p>先把首页、上游列表、号池列表、告警处理接真实 API。不要先做复杂设置页；能让老板收到告警并确认处理，才是第一收益点。</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="view-panel" id="backend">
+        <div class="cards">
+          <article class="info-card">
+            <h3>入口层</h3>
+            <p><code>relay_sentinel/app.py</code> 创建 FastAPI app，注册所有 V1 API。<code>relay_sentinel/asgi.py</code> 读取环境变量，给 uvicorn 部署用。</p>
+          </article>
+          <article class="info-card">
+            <h3>存储层</h3>
+            <p><code>relay_sentinel/storage.py</code> 直接使用 SQLite。优点是少依赖、容易部署；缺点是未来多人/多实例要迁移到 PostgreSQL 或做更严格锁策略。</p>
+          </article>
+          <article class="info-card">
+            <h3>适配器层</h3>
+            <p><code>adapters/new_api.py</code> 读 New API 通道余额，<code>adapters/sub2api.py</code> 登录 Sub2API 并读取余额。Cloudflare 阻断会单独报错，不混成密码错误。</p>
+          </article>
+          <article class="info-card">
+            <h3>领域层</h3>
+            <p><code>domain/quota.py</code> 算额度还能撑多久；<code>alerts.py</code> 做冷却；<code>pool_health.py</code> 汇总账号健康；<code>scheduler.py</code> 只做 due check 选择。</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="view-panel" id="api">
+        <div class="api-list">
+          <div class="api-row"><span class="method">POST</span><code>/api/upstreams</code><span>建上游</span></div>
+          <div class="api-row"><span class="method get">GET</span><code>/api/upstreams</code><span>列上游</span></div>
+          <div class="api-row"><span class="method patch">PATCH</span><code>/api/upstreams/{id}</code><span>改上游</span></div>
+          <div class="api-row"><span class="method">POST</span><code>/api/upstreams/{id}/run-balance-check</code><span>查余额</span></div>
+          <div class="api-row"><span class="method">POST</span><code>/api/pools</code><span>建号池</span></div>
+          <div class="api-row"><span class="method get">GET</span><code>/api/pools</code><span>列号池</span></div>
+          <div class="api-row"><span class="method">POST</span><code>/api/pools/{id}/quota-sources</code><span>挂来源</span></div>
+          <div class="api-row"><span class="method">POST</span><code>/api/pools/{id}/run-health-check</code><span>查健康</span></div>
+          <div class="api-row"><span class="method">POST</span><code>/api/pools/{id}/run-quota-check</code><span>查额度</span></div>
+          <div class="api-row"><span class="method get">GET</span><code>/api/mobile/home</code><span>首页</span></div>
+          <div class="api-row"><span class="method">POST</span><code>/api/notification-channels</code><span>建通知</span></div>
+          <div class="api-row"><span class="method">POST</span><code>/api/alerts/evaluate</code><span>评估告警</span></div>
+          <div class="api-row"><span class="method">POST</span><code>/api/alerts/events/{id}/ack</code><span>确认</span></div>
+          <div class="api-row"><span class="method">POST</span><code>/api/alerts/events/{id}/resolve</code><span>解决</span></div>
+          <div class="api-row"><span class="method delete">DELETE</span><code>/api/upstreams/{id}</code><span>删除</span></div>
+        </div>
+      </div>
+
+      <div class="view-panel" id="security">
+        <div class="cards">
+          <article class="info-card">
+            <h3>已经做了</h3>
+            <ul>
+              <li>API 响应不返回明文 password/token。</li>
+              <li>SQLite 不保存原始 `"password"` / `"token"` JSON 字段名。</li>
+              <li>V1 不提供充值、付款、改余额接口。</li>
+              <li>错误响应不会回显提交的 secret。</li>
+            </ul>
+          </article>
+          <article class="info-card">
+            <h3>还不够生产</h3>
+            <ul>
+              <li>凭证封存是测试级替身，不是 KMS。</li>
+              <li>没有登录权限，不能直接公网裸露。</li>
+              <li>webhook 真实投递缺少重试、签名和审计。</li>
+              <li>SQLite 单机可以，多实例不够。</li>
+            </ul>
+          </article>
+          <article class="info-card">
+            <h3>关键风险</h3>
+            <p>如果这个项目要真的管钱，第一风险不是页面不好看，而是凭证和告警可靠性。密钥管理、访问控制、投递审计必须比花哨 dashboard 更早做。</p>
+          </article>
+          <article class="info-card">
+            <h3>生产底线</h3>
+            <p>放到公网前至少要加反代 HTTPS、访问鉴权、强随机 secret key、数据库备份、日志脱敏，以及 webhook 投递失败可追踪。</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="view-panel" id="ops">
+        <div class="cards">
+          <article class="info-card">
+            <h3>本地启动</h3>
+            <p><code>uvicorn relay_sentinel.asgi:app --host 0.0.0.0 --port 8000 --reload</code></p>
+          </article>
+          <article class="info-card">
+            <h3>单机部署</h3>
+            <p>README 推荐 systemd + SQLite + Nginx/Caddy 反代。V1 更适合先单机跑稳，不急着做 Kubernetes。</p>
+          </article>
+          <article class="info-card">
+            <h3>验证命令</h3>
+            <ul>
+              <li><code>pytest tests/backend -q</code></li>
+              <li><code>cd web && npm test</code></li>
+              <li><code>cd web && npm run build</code></li>
+            </ul>
+          </article>
+          <article class="info-card">
+            <h3>还缺运维件</h3>
+            <p>健康检查端点、结构化日志、指标、数据库备份、真实 scheduler、部署脚本和 release checklist。</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="view-panel" id="business">
+        <div class="priority-list">
+          <div class="priority">
+            <div class="rank">1</div>
+            <div><strong>真实定时巡检</strong><span>老板不可能每天手动点检查。定时查上游余额、号池健康、5H/7D 额度，是这个项目的核心价值。</span></div>
+          </div>
+          <div class="priority">
+            <div class="rank">2</div>
+            <div><strong>通知投递审计</strong><span>提醒没送到，比没提醒更危险。要记录每次 webhook 的成功、失败、响应码和重试。</span></div>
+          </div>
+          <div class="priority">
+            <div class="rank">3</div>
+            <div><strong>前端接真实 API</strong><span>当前 PWA 已有体验，但还用 mock 数据。要让它成为老板每天打开的真实工作台。</span></div>
+          </div>
+          <div class="priority">
+            <div class="rank">4</div>
+            <div><strong>生产级安全</strong><span>凭证、webhook、后台服务都和钱相关。上线前必须补鉴权、密钥管理、备份和日志脱敏。</span></div>
+          </div>
+          <div class="priority">
+            <div class="rank">5</div>
+            <div><strong>再考虑多租户</strong><span>先别急着 SaaS 化。先服务一个老板，把断供预警做准，再谈更多客户。</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="inspector">
+      <h2 id="nodeTitle">老板 / 值班人</h2>
+      <p id="nodeSummary" class="muted">关心哪里要断供、要不要联系群主、哪里需要续费。</p>
+      <div id="nodeTags" class="pill-row"></div>
+      <div class="section">
+        <h3>它负责什么</h3>
+        <ul id="nodeResponsibilities"></ul>
+      </div>
+      <div class="section">
+        <h3>关键文件 / API</h3>
+        <ul id="nodeFiles"></ul>
+      </div>
+      <div class="section">
+        <h3>风险与下一步</h3>
+        <ul id="nodeRisks"></ul>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const viewCopy = {
+      overview: ['总览架构', 'RelaySentinel 的本质是一个“中转和号池哨兵”：持续知道哪里快断供，提前通知老板处理。'],
+      frontend: ['前端理解', '当前前端是 PWA 预览，目的是让老板在手机上看告警、上游、号池和通知状态。'],
+      backend: ['后端拆解', '后端已经有 FastAPI 合同实现，核心是资源管理、巡检入口、告警事件和通知渠道。'],
+      api: ['API 地图', '这些接口构成 V1 的业务闭环：添加目标、检查目标、产生告警、处理告警。'],
+      security: ['数据与安全', '这个项目管的是服务可用性和凭证，生产安全优先级必须很高。'],
+      ops: ['部署运维', 'V1 最适合先单机部署跑稳，再逐步补后台调度、日志、备份和观测。'],
+      business: ['赚钱优先级', '真正能变现的是稳定提前发现断供风险，而不是先做复杂平台化。']
+    };
+
+    const nodes = {
+      owner: {
+        title: '老板 / 值班人',
+        summary: '最终用户不是看技术栈的人，而是要快速知道哪里快断供、怎么处理、是否已经处理。',
+        tags: ['业务入口', '告警处理', '续费决策'],
+        responsibilities: ['查看未处理告警', '判断联系群主、打开充值链接或人工处理', '确认、暂停、重新检查、解决告警'],
+        files: ['GET /api/mobile/home', 'POST /api/alerts/events/{id}/ack', 'POST /api/alerts/events/{id}/resolve'],
+        risks: ['如果告警太晚或太吵，老板会不信系统', '下一步要把告警文案做得更像运营指令，而不是技术日志']
+      },
+      frontend: {
+        title: 'React PWA 前端',
+        summary: '手机工作台，目前以 mock 数据展示完整体验，适合继续接后端真实 API。',
+        tags: ['React', 'Vite', 'PWA', 'Mock Data'],
+        responsibilities: ['展示移动端首页、上游、号池、通知、设置', '承载告警处理动作', '让老板不用进服务器也能看状态'],
+        files: ['web/src/App.tsx', 'web/src/data/mockData.ts', 'web/src/domain/quota.ts', 'web/public/manifest.webmanifest'],
+        risks: ['还未完整接后端 API', '下一步要补 API client、加载态、错误态和表单提交']
+      },
+      api: {
+        title: 'FastAPI 后端入口',
+        summary: '项目的业务合同层，负责把前端动作变成上游、号池、通知、告警事件的持久化操作。',
+        tags: ['FastAPI', 'REST API', 'V1 Contract'],
+        responsibilities: ['创建和管理上游/号池', '提供手动巡检入口', '管理通知渠道和告警生命周期'],
+        files: ['relay_sentinel/app.py', 'relay_sentinel/asgi.py', 'README.md'],
+        risks: ['当前没有登录权限，不可直接公网裸露', '下一步要加鉴权、健康检查和更清晰错误码']
+      },
+      domain: {
+        title: '领域逻辑',
+        summary: '这里决定系统是不是聪明：什么时候告警、多久后再提醒、额度还能撑多久。',
+        tags: ['Quota', 'Alerts', 'Scheduler', 'Pool Health'],
+        responsibilities: ['预测 5H/7D 可用时长', '账号健康汇总', '告警冷却', '选择到期检查任务'],
+        files: ['relay_sentinel/domain/quota.py', 'relay_sentinel/domain/alerts.py', 'relay_sentinel/domain/pool_health.py', 'relay_sentinel/domain/scheduler.py'],
+        risks: ['scheduler 现在只有选择逻辑，后台定时任务还没真正运行', '下一步要把 due check 接成真实后台 worker']
+      },
+      storage: {
+        title: 'SQLite + 凭证封存',
+        summary: 'V1 使用 SQLite 简化部署，并对凭证明文做封存和响应脱敏。',
+        tags: ['SQLite', 'Secret Redaction', 'Single Node'],
+        responsibilities: ['保存上游、号池、quota source、通知渠道、告警事件', '避免响应和数据库裸存明文密码/token', '提供列表、详情、更新、删除'],
+        files: ['relay_sentinel/storage.py', 'RELAY_SENTINEL_DATABASE_URL', 'RELAY_SENTINEL_SECRET_KEY'],
+        risks: ['封存不是生产级 KMS', 'SQLite 不适合多实例写入', '上线前要补备份、迁移、密钥轮换']
+      },
+      upstream: {
+        title: '外部上游中转',
+        summary: '这是老板向别人买的服务。V1 只允许 new_api 和 sub2api，不能混入 CLIProxyAPI/CPA。',
+        tags: ['New API', 'Sub2API', '余额阈值'],
+        responsibilities: ['保存外部服务地址和凭证', '读取余额信号', '低于阈值时生成提醒'],
+        files: ['POST /api/upstreams', 'relay_sentinel/adapters/new_api.py', 'relay_sentinel/adapters/sub2api.py'],
+        risks: ['Sub2API 可能被 Cloudflare 阻断', '余额接口不统一，需要适配器继续增强']
+      },
+      pool: {
+        title: '自己的号池',
+        summary: '这是你自己运营的中转站或账号池，重点不是余额，而是账号健康和 5H/7D 额度预测。',
+        tags: ['Owned Pool', '5H/7D', 'Quota Source'],
+        responsibilities: ['管理自营 New API/Sub2API 号池', '挂载 CLIProxyAPI/CPA 作为高级额度来源', '巡检账号健康和额度消耗'],
+        files: ['POST /api/pools', 'POST /api/pools/{id}/quota-sources', 'POST /api/pools/{id}/run-quota-check'],
+        risks: ['CPA/CLIProxyAPI 当前只是可保存的额度来源，还没真实读取', '下一步要补真实 quota source adapter']
+      },
+      notify: {
+        title: 'Webhook 通知',
+        summary: '告警要真正送到老板手上。V1 支持 webhook 渠道，默认 dry-run 更安全。',
+        tags: ['Webhook', 'Dry Run', 'Alert Delivery'],
+        responsibilities: ['保存通知渠道', '测试通知', '渲染告警文案', '隐藏 webhook secret'],
+        files: ['relay_sentinel/notifications/webhook.py', 'POST /api/notification-channels', 'POST /api/notification-channels/{id}/test'],
+        risks: ['真实投递缺少重试和审计', '下一步要记录响应码、失败原因和重试次数']
+      }
+    };
+
+    const tabs = document.querySelectorAll('.tab');
+    const panels = document.querySelectorAll('.view-panel');
+    const title = document.getElementById('viewTitle');
+    const subtitle = document.getElementById('viewSubtitle');
+    const nodeButtons = document.querySelectorAll('.node');
+    const searchInput = document.getElementById('searchInput');
+
+    function setView(view) {
+      tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.view === view));
+      panels.forEach(panel => panel.classList.toggle('active', panel.id === view));
+      title.textContent = viewCopy[view][0];
+      subtitle.textContent = viewCopy[view][1];
+    }
+
+    function renderNode(id) {
+      const node = nodes[id];
+      document.getElementById('nodeTitle').textContent = node.title;
+      document.getElementById('nodeSummary').textContent = node.summary;
+      renderList('nodeResponsibilities', node.responsibilities);
+      renderList('nodeFiles', node.files);
+      renderList('nodeRisks', node.risks);
+      const tags = document.getElementById('nodeTags');
+      tags.innerHTML = '';
+      node.tags.forEach(tag => {
+        const pill = document.createElement('span');
+        pill.className = 'pill';
+        pill.textContent = tag;
+        tags.appendChild(pill);
+      });
+      nodeButtons.forEach(button => button.classList.toggle('active', button.dataset.node === id));
+    }
+
+    function renderList(id, items) {
+      const list = document.getElementById(id);
+      list.innerHTML = '';
+      items.forEach(item => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        list.appendChild(li);
+      });
+    }
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => setView(tab.dataset.view));
+    });
+
+    nodeButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        setView('overview');
+        renderNode(button.dataset.node);
+      });
+    });
+
+    searchInput.addEventListener('input', () => {
+      const query = searchInput.value.trim().toLowerCase();
+      nodeButtons.forEach(button => {
+        const id = button.dataset.node;
+        const node = nodes[id];
+        const haystack = [node.title, node.summary, ...node.tags, ...node.responsibilities, ...node.files, ...node.risks].join(' ').toLowerCase();
+        button.classList.toggle('dimmed', query && !haystack.includes(query));
+      });
+    });
+
+    renderNode('owner');
+  </script>
+</body>
+</html>
+
