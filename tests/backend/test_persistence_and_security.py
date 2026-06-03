@@ -58,6 +58,33 @@ def test_api_key_protects_private_api_when_configured(tmp_path):
     assert accepted_with_fallback_header.status_code == 200
 
 
+def test_local_frontend_origin_can_preflight_authenticated_api(tmp_path):
+    app_module = importlib.import_module("relay_sentinel.app")
+    app = app_module.create_app(
+        settings={
+            "database_url": f"sqlite:///{tmp_path / 'relay_sentinel_test.db'}",
+            "secret_key": "test-secret-key",
+            "api_key": "owner-api-key",
+            "disable_scheduler": True,
+            "notification_dry_run": True,
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.options(
+            "/api/mobile/home",
+            headers={
+                "Origin": "http://localhost:4173",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:4173"
+    assert "authorization" in response.headers["access-control-allow-headers"].lower()
+
+
 def test_sqlite_persistence_retains_targets_across_app_instances(tmp_path):
     app_module = importlib.import_module("relay_sentinel.app")
     database_path = tmp_path / "relay_sentinel.db"

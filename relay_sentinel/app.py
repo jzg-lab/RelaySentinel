@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from relay_sentinel.adapters.errors import AdapterAuthBlockedError, AdapterAuthError
@@ -329,6 +330,17 @@ def create_app(settings: Optional[Dict[str, Any]] = None) -> FastAPI:
     # ------------------------------------------------------------------
 
     app = FastAPI(title="RelaySentinel", lifespan=_lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["authorization", "content-type", "x-relay-sentinel-key"],
+    )
     app.state.store = store
     app.state.scheduler_enabled = scheduler_enabled
     app.state.scheduler_started = False  # set by lifespan on actual start
@@ -340,6 +352,8 @@ def create_app(settings: Optional[Dict[str, Any]] = None) -> FastAPI:
 
     @app.middleware("http")
     async def api_key_middleware(request: Request, call_next):
+        if request.method == "OPTIONS":
+            return await call_next(request)
         if app.state.api_key and request.url.path.startswith("/api/"):
             expected = f"Bearer {app.state.api_key}"
             provided = request.headers.get("authorization") or ""
