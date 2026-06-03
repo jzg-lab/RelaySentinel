@@ -87,7 +87,7 @@ export interface CreatePoolPayload {
 
 const STORAGE_KEY = 'relay-sentinel-api-settings';
 const DEFAULT_SETTINGS: ApiSettings = {
-  baseUrl: 'http://localhost:8000',
+  baseUrl: 'http://127.0.0.1:8000',
   apiKey: ''
 };
 

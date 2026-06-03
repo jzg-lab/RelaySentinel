@@ -111,6 +111,35 @@ describe('App workbench', () => {
 
     expect(window.localStorage.getItem('relay-sentinel-api-settings')).toContain('owner-api-key');
     expect(document.body.textContent).toContain('后端连接已保存');
+    expect(document.body.textContent).toContain('当前地址：http://localhost:8000');
+    expect(document.body.textContent).toContain('API Key：owne...-key');
+  });
+
+  it('enables upstream creation immediately after saving API settings', async () => {
+    installFetchMock();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    await act(async () => {
+      createRoot(host).render(<App />);
+    });
+
+    await act(async () => {
+      findButton('设置').click();
+    });
+    await setField('apiBaseUrl', 'http://localhost:8000');
+    await setField('apiKey', 'owner-api-key');
+    await act(async () => {
+      findButton('保存连接').click();
+    });
+    await flushPromises();
+
+    await act(async () => {
+      findNavButton('上游').click();
+    });
+
+    expect(document.body.textContent).not.toContain('先到设置页保存后端地址和 API Key');
+    expect(findButton('保存上游').disabled).toBe(false);
   });
 
   it('keeps saved API settings even when the immediate backend probe fails', async () => {
@@ -225,6 +254,19 @@ function findButton(label: string): HTMLButtonElement {
 
   if (!(button instanceof HTMLButtonElement)) {
     throw new Error(`Button not found: ${label}`);
+  }
+
+  return button;
+}
+
+function findNavButton(label: string): HTMLButtonElement {
+  const nav = document.querySelector('nav[aria-label="主导航"]');
+  const button = nav
+    ? Array.from(nav.querySelectorAll('button')).find((node) => node.textContent?.includes(label))
+    : null;
+
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Nav button not found: ${label}`);
   }
 
   return button;

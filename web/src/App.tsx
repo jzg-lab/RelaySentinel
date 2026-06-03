@@ -75,6 +75,12 @@ function StatusPill({ status }: { status: string }) {
   return <span className={`status ${normalized}`}>{statusLabel(status)}</span>;
 }
 
+function maskSecret(value: string): string {
+  if (!value) return '未保存';
+  if (value.length <= 8) return '已保存';
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
+
 function TopBar({ title, subtitle, onRefresh }: { title: string; subtitle: string; onRefresh: () => void }) {
   return (
     <header className="top">
@@ -568,12 +574,12 @@ function SettingsPanel({
         <article className="item-card setting-card">
           <div>
             <h3>后端连接</h3>
-            <p>保存后，前端会读取真实数据库并提交上游和中转站配置。</p>
+            <p>当前地址：{settings.baseUrl} · API Key：{maskSecret(settings.apiKey)}</p>
           </div>
           <form className="target-form" onSubmit={handleSubmit}>
             <label>
               <span>后端地址</span>
-              <input name="apiBaseUrl" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="http://localhost:8000" required />
+              <input name="apiBaseUrl" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="http://127.0.0.1:8000" required />
             </label>
             <label>
               <span>API Key</span>

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'relay-sentinel-preview-v2';
+const CACHE_NAME = 'relay-sentinel-preview-v3';
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', (event) => {
