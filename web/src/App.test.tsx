@@ -52,7 +52,7 @@ describe('App workbench', () => {
     expect(sectionTitles[0]).toBe('号池快照');
   });
 
-  it('keeps upstream and owned pool add entries separate with New API and Sub2API choices', async () => {
+  it('keeps admin-only New API credentials out of the external upstream form', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
 
@@ -65,9 +65,11 @@ describe('App workbench', () => {
     });
 
     const upstreamAdd = findArticle('添加上游');
-    expect(upstreamAdd.textContent).toContain('New API');
     expect(upstreamAdd.textContent).toContain('Sub2API');
+    expect(upstreamAdd.textContent).not.toContain('New API');
+    expect(upstreamAdd.textContent).not.toContain('管理 Token');
     expect(upstreamAdd.textContent).not.toContain('CLIProxyAPI');
+    expect(document.querySelector('[name="upstreamAdminToken"]')).toBeNull();
 
     await act(async () => {
       findButton('号池').click();

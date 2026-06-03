@@ -317,12 +317,11 @@ function UpstreamForm({
   canSubmit: boolean;
   onCreated: (message: string) => Promise<void>;
 }) {
-  const [platform, setPlatform] = useState<Platform>('sub2api');
+  const platform: Platform = 'sub2api';
   const [name, setName] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [adminToken, setAdminToken] = useState('');
   const [thresholdValue, setThresholdValue] = useState('10');
   const [thresholdUnit, setThresholdUnit] = useState('USD');
   const [renewalKind, setRenewalKind] = useState<RenewalKind>('contact_owner');
@@ -333,9 +332,7 @@ function UpstreamForm({
     event.preventDefault();
     if (!canSubmit) return;
 
-    const credential: Record<string, string> = platform === 'sub2api'
-      ? { kind: 'login', email, password }
-      : { kind: 'admin_token', token: adminToken };
+    const credential: Record<string, string> = { kind: 'login', email, password };
     const payload: CreateUpstreamPayload = {
       name,
       platform,
@@ -356,7 +353,6 @@ function UpstreamForm({
     try {
       await createUpstream(settings, payload);
       setPassword('');
-      setAdminToken('');
       await onCreated('上游已保存，凭证不会在页面回显');
     } finally {
       setSubmitting(false);
@@ -367,14 +363,13 @@ function UpstreamForm({
     <article className="add-card">
       <div>
         <h3>添加上游</h3>
-        <p>上游是你向别人购买的外部中转，支持 New API 和 Sub2API。</p>
+        <p>上游是你向别人购买的外部中转。当前先支持 Sub2API 账号密码；其他平台的普通用户余额接口确认后再接入。</p>
       </div>
       <form className="target-form" onSubmit={handleSubmit}>
         <label>
           <span>平台</span>
-          <select name="upstreamPlatform" value={platform} onChange={(event) => setPlatform(event.target.value as Platform)}>
+          <select name="upstreamPlatform" value={platform} disabled>
             <option value="sub2api">Sub2API</option>
-            <option value="new_api">New API</option>
           </select>
         </label>
         <label>
@@ -385,23 +380,16 @@ function UpstreamForm({
           <span>地址</span>
           <input name="upstreamBaseUrl" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://example.com" required />
         </label>
-        {platform === 'sub2api' ? (
-          <div className="form-grid">
-            <label>
-              <span>邮箱</span>
-              <input name="upstreamEmail" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="owner@example.com" required />
-            </label>
-            <label>
-              <span>密码</span>
-              <input name="upstreamPassword" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
-            </label>
-          </div>
-        ) : (
+        <div className="form-grid">
           <label>
-            <span>管理 Token</span>
-            <input name="upstreamAdminToken" type="password" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} required />
+            <span>邮箱</span>
+            <input name="upstreamEmail" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="owner@example.com" required />
           </label>
-        )}
+          <label>
+            <span>密码</span>
+            <input name="upstreamPassword" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+          </label>
+        </div>
         <div className="form-grid">
           <label>
             <span>余额低于</span>
