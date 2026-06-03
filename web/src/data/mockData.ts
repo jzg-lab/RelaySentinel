@@ -18,7 +18,7 @@ export interface AlertItem {
 export interface UpstreamItem {
   id: string;
   name: string;
-  platform: 'New API' | 'Sub2API' | 'CLIProxyAPI';
+  platform: 'New API' | 'Sub2API';
   balance: string;
   threshold: string;
   renewal: '支付链接' | '联系群主' | '手动说明';
@@ -28,7 +28,7 @@ export interface UpstreamItem {
 export interface PoolItem {
   id: string;
   name: string;
-  platform: 'New API' | 'Sub2API' | 'CLIProxyAPI';
+  platform: 'New API' | 'Sub2API';
   successAccounts: number;
   totalAccounts: number;
   failedAccounts: number;
@@ -98,7 +98,7 @@ export const pools: PoolItem[] = [
   {
     id: 'codex-main',
     name: 'Codex 主号池',
-    platform: 'CLIProxyAPI',
+    platform: 'New API',
     successAccounts: 44,
     totalAccounts: 45,
     failedAccounts: 1,

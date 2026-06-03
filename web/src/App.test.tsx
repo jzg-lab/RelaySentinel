@@ -76,6 +76,17 @@ describe('App workbench', () => {
     expect(poolAdd.textContent).toContain('Sub2API');
     expect(poolAdd.textContent).not.toContain('上游');
   });
+
+  it('does not present CLIProxyAPI as a target platform', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    await act(async () => {
+      createRoot(host).render(<App />);
+    });
+
+    expect(document.body.textContent).not.toContain('CLIProxyAPI');
+  });
 });
 
 function findButton(label: string): HTMLButtonElement {

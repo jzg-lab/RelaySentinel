@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import sqlite3
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from cryptography.fernet import Fernet
 
 
 def utc_now_iso() -> str:
@@ -18,8 +20,14 @@ class Store:
     def __init__(self, *, database_url: str, secret_key: str) -> None:
         self.database_path = _sqlite_path(database_url)
         self.secret_key = secret_key
+        self._memory_connection: sqlite3.Connection | None = None
+        self._memory_lock = threading.RLock()
+        self._fernet = Fernet(_fernet_key(secret_key))
         if self.database_path != ":memory:":
             Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
+        else:
+            self._memory_connection = sqlite3.connect(":memory:", check_same_thread=False)
+            self._memory_connection.row_factory = sqlite3.Row
         self._init_schema()
 
     def create_upstream(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -73,6 +81,11 @@ class Store:
             row = connection.execute("select * from upstreams where id = ?", (item_id,)).fetchone()
         return _upstream_from_row(row) if row else None
 
+    def get_upstream_credential(self, item_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute("select credential_blob from upstreams where id = ?", (item_id,)).fetchone()
+        return self.open(row["credential_blob"]) if row else None
+
     def update_upstream(self, item_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
         current = self.get_upstream(item_id)
         if current is None:
@@ -111,6 +124,24 @@ class Store:
         with self._connect() as connection:
             cursor = connection.execute("delete from upstreams where id = ?", (item_id,))
         return cursor.rowcount > 0
+
+    def record_upstream_balance_check(
+        self,
+        item_id: str,
+        *,
+        status: str,
+        checked_at: str,
+    ) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                update upstreams
+                set status = ?, last_balance_checked_at = ?, updated_at = ?
+                where id = ?
+                """,
+                (status, checked_at, checked_at, item_id),
+            )
+        return self.get_upstream(item_id) if cursor.rowcount else None
 
     def create_pool(self, payload: dict[str, Any]) -> dict[str, Any]:
         item = {
@@ -167,6 +198,11 @@ class Store:
             row = connection.execute("select * from pools where id = ?", (item_id,)).fetchone()
         return _pool_from_row(row) if row else None
 
+    def get_pool_credential(self, item_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute("select credential_blob from pools where id = ?", (item_id,)).fetchone()
+        return self.open(row["credential_blob"]) if row else None
+
     def update_pool(self, item_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
         current = self.get_pool(item_id)
         if current is None:
@@ -205,6 +241,42 @@ class Store:
         with self._connect() as connection:
             cursor = connection.execute("delete from pools where id = ?", (item_id,))
         return cursor.rowcount > 0
+
+    def record_pool_health_check(
+        self,
+        item_id: str,
+        *,
+        status: str,
+        checked_at: str,
+    ) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                update pools
+                set status = ?, last_health_checked_at = ?, updated_at = ?
+                where id = ?
+                """,
+                (status, checked_at, checked_at, item_id),
+            )
+        return self.get_pool(item_id) if cursor.rowcount else None
+
+    def record_pool_quota_check(
+        self,
+        item_id: str,
+        *,
+        status: str,
+        checked_at: str,
+    ) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                update pools
+                set status = ?, last_quota_checked_at = ?, updated_at = ?
+                where id = ?
+                """,
+                (status, checked_at, checked_at, item_id),
+            )
+        return self.get_pool(item_id) if cursor.rowcount else None
 
     def create_quota_source(self, pool_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         item = {
@@ -306,6 +378,45 @@ class Store:
                     (self.seal({"url": patch["url"]}), item_id),
                 )
         return self.get_notification_channel(item_id)
+
+    def create_notification_delivery(self, payload: dict[str, Any]) -> dict[str, Any]:
+        item = {
+            "id": payload.get("id") or _new_id("delivery"),
+            "channel_id": payload["channel_id"],
+            "status": payload["status"],
+            "status_code": payload.get("status_code"),
+            "error": payload.get("error"),
+            "created_at": payload.get("created_at") or utc_now_iso(),
+        }
+        with self._connect() as connection:
+            connection.execute(
+                """
+                insert into notification_deliveries (
+                    id, channel_id, status, status_code, error, created_at
+                ) values (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["id"],
+                    item["channel_id"],
+                    item["status"],
+                    item["status_code"],
+                    item["error"],
+                    item["created_at"],
+                ),
+            )
+        return item
+
+    def list_notification_deliveries(self, channel_id: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                select * from notification_deliveries
+                where channel_id = ?
+                order by created_at desc
+                """,
+                (channel_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def create_alert_event(self, payload: dict[str, Any]) -> dict[str, Any]:
         item = {
@@ -416,19 +527,18 @@ class Store:
 
     def seal(self, payload: dict[str, Any]) -> str:
         raw = _dumps(_encode_secret_keys(payload)).encode("utf-8")
-        stream = _secret_stream(self.secret_key, len(raw))
-        sealed = bytes(byte ^ stream[index] for index, byte in enumerate(raw))
-        return base64.urlsafe_b64encode(sealed).decode("ascii")
+        return self._fernet.encrypt(raw).decode("ascii")
 
     def open(self, blob: str) -> dict[str, Any]:
-        sealed = base64.urlsafe_b64decode(blob.encode("ascii"))
-        stream = _secret_stream(self.secret_key, len(sealed))
-        raw = bytes(byte ^ stream[index] for index, byte in enumerate(sealed))
+        raw = self._fernet.decrypt(blob.encode("ascii"))
         return _decode_secret_keys(json.loads(raw.decode("utf-8")))
 
     def _connect(self) -> sqlite3.Connection:
+        if self._memory_connection is not None:
+            return _ReusableConnection(self._memory_connection, self._memory_lock)
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
+        connection.execute("pragma journal_mode = wal")
         return connection
 
     def _init_schema(self) -> None:
@@ -509,6 +619,15 @@ class Store:
                     note text,
                     created_at text not null
                 );
+
+                create table if not exists notification_deliveries (
+                    id text primary key,
+                    channel_id text not null,
+                    status text not null,
+                    status_code integer,
+                    error text,
+                    created_at text not null
+                );
                 """
             )
 
@@ -530,14 +649,30 @@ def _dumps(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _secret_stream(secret_key: str, length: int) -> bytes:
-    seed = secret_key.encode("utf-8")
-    output = b""
-    counter = 0
-    while len(output) < length:
-        output += hashlib.sha256(seed + str(counter).encode("ascii")).digest()
-        counter += 1
-    return output[:length]
+def _fernet_key(secret_key: str) -> bytes:
+    import hashlib
+
+    digest = hashlib.sha256(secret_key.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(digest)
+
+
+class _ReusableConnection:
+    def __init__(self, connection: sqlite3.Connection, lock: threading.RLock) -> None:
+        self.connection = connection
+        self.lock = lock
+
+    def __enter__(self) -> sqlite3.Connection:
+        self.lock.acquire()
+        return self.connection
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        try:
+            if exc_type is None:
+                self.connection.commit()
+            else:
+                self.connection.rollback()
+        finally:
+            self.lock.release()
 
 
 def _encode_secret_keys(value: Any) -> Any:

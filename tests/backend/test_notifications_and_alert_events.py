@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import httpx
+
 from tests.backend.helpers import notification_channel_payload, upstream_payload
 
 
@@ -33,6 +35,23 @@ def test_notification_channel_crud_and_dry_run_redacts_webhook_secret(client):
     assert "secret-webhook-token" not in combined
 
 
+def test_notification_channel_patch_accepts_partial_enabled_update(client):
+    channel = client.post("/api/notification-channels", json=notification_channel_payload()).json()
+
+    response = client.patch(f"/api/notification-channels/{channel['id']}", json={"enabled": False})
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is False
+
+
+def test_notification_channel_patch_validates_partial_url_when_present(client):
+    channel = client.post("/api/notification-channels", json=notification_channel_payload()).json()
+
+    response = client.patch(f"/api/notification-channels/{channel['id']}", json={"url": "not-a-url"})
+
+    assert response.status_code == 422
+
+
 def test_failed_webhook_delivery_records_redacted_failure(client):
     channel = client.post(
         "/api/notification-channels",
@@ -48,6 +67,41 @@ def test_failed_webhook_delivery_records_redacted_failure(client):
     body = result.json()
     assert body["status"] in {"failed", "dry_run"}
     assert "secret-webhook-token" not in result.text
+
+
+def test_real_webhook_delivery_uses_http_client_and_records_audit(tmp_path):
+    sent = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append({"url": str(request.url), "body": request.content.decode()})
+        return httpx.Response(204)
+
+    import importlib
+    from fastapi.testclient import TestClient
+
+    app_module = importlib.import_module("relay_sentinel.app")
+    app = app_module.create_app(
+        settings={
+            "database_url": f"sqlite:///{tmp_path / 'relay_sentinel_test.db'}",
+            "secret_key": "test-secret-key",
+            "disable_scheduler": True,
+            "notification_dry_run": False,
+            "webhook_transport": httpx.MockTransport(handler),
+        }
+    )
+
+    with TestClient(app) as client:
+        channel = client.post("/api/notification-channels", json=notification_channel_payload()).json()
+        result = client.post(f"/api/notification-channels/{channel['id']}/test", json={"text": "余额告警"})
+        deliveries = client.get(f"/api/notification-channels/{channel['id']}/deliveries").json()["items"]
+
+    assert result.status_code == 200
+    assert result.json()["status"] == "sent"
+    assert sent and sent[0]["body"]
+    assert deliveries[0]["status"] == "sent"
+    assert deliveries[0]["status_code"] == 204
+    assert "secret-webhook-token" not in result.text
+    assert "secret-webhook-token" not in str(deliveries)
 
 
 def test_alert_event_lifecycle_ack_snooze_resolve_and_rerun(client):
@@ -122,6 +176,25 @@ def test_repeated_low_balance_within_cooldown_creates_cooldown_skip_event(client
     events = client.get("/api/alerts/events", params={"target_id": upstream["id"]})
     assert events.status_code == 200
     assert any(item["action"] == "cooldown_skip" for item in events.json()["items"])
+
+
+def test_clear_alert_evaluation_does_not_create_open_home_alert(client):
+    upstream = client.post("/api/upstreams", json=upstream_payload()).json()
+
+    result = client.post(
+        "/api/alerts/evaluate",
+        json={
+            "target_id": upstream["id"],
+            "rule_id": "upstream-low-balance",
+            "is_triggered": False,
+            "now": "2026-06-01T12:00:00Z",
+            "cooldown_seconds": 21600,
+        },
+    )
+
+    assert result.status_code == 200
+    assert result.json()["action"] == "clear"
+    assert client.get("/api/mobile/home").json()["alerts"] == []
 
 
 def test_alert_event_filtering_by_status_and_time_window(client):

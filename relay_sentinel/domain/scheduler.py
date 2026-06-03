@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -30,8 +30,16 @@ def select_due_checks(*, now: datetime, targets: list[dict[str, Any]]) -> list[d
     return due
 
 
-def _is_due(now: datetime, last_checked_at: datetime | None, interval_seconds: int) -> bool:
+def _is_due(now: datetime, last_checked_at: datetime | str | None, interval_seconds: int) -> bool:
     if last_checked_at is None:
         return True
-    return (now - last_checked_at).total_seconds() >= interval_seconds
+    parsed_last_checked_at = _parse_datetime(last_checked_at)
+    parsed_now = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    return (parsed_now - parsed_last_checked_at).total_seconds() >= interval_seconds
 
+
+def _parse_datetime(value: datetime | str) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)

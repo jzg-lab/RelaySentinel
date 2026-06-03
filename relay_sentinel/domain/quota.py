@@ -100,7 +100,7 @@ def _summary(
             f"总剩余：{seven_day['remaining_percent']}%",
             "预测",
             f"近 1 小时：{five_hour['burn_rate_1h_percent_per_hour']}%/小时",
-            f"过去 1 小时消耗速度：{five_hour['burn_rate_1h_percent_per_hour']}%/小时",
+            f"近 3 小时：{five_hour['burn_rate_3h_percent_per_hour']}%/小时",
         ]
     )
     if five_hour["hours_remaining"] == inf and seven_day["hours_remaining"] == inf:

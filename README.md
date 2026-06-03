@@ -50,8 +50,8 @@ npm run build
 
 当前已验证结果：
 
-- `pytest tests/backend -q`：39 passed
-- `npm test`：6 passed
+- `pytest tests/backend -q`：57 passed
+- `npm test`：8 passed
 - `npm run build`：构建成功
 
 ## 3. 本地启动后端
@@ -63,6 +63,7 @@ cd /mnt/e/my_github/relaysentinel
 source .venv/bin/activate
 export RELAY_SENTINEL_DATABASE_URL="sqlite:///./data/relay_sentinel.db"
 export RELAY_SENTINEL_SECRET_KEY="replace-with-a-long-random-secret"
+export RELAY_SENTINEL_API_KEY="replace-with-a-private-api-key"
 export RELAY_SENTINEL_NOTIFICATION_DRY_RUN="true"
 uvicorn relay_sentinel.asgi:app --host 0.0.0.0 --port 8000 --reload
 ```
@@ -78,7 +79,10 @@ uvicorn relay_sentinel.asgi:app --host 0.0.0.0 --port 8000 --reload
 | --- | --- | --- |
 | `RELAY_SENTINEL_DATABASE_URL` | `sqlite:///./data/relay_sentinel.db` | SQLite 数据库路径 |
 | `RELAY_SENTINEL_SECRET_KEY` | `change-me-before-production` | 凭证封存密钥，生产必须替换 |
-| `RELAY_SENTINEL_DISABLE_SCHEDULER` | `true` | V1 暂不启动后台调度 |
+| `RELAY_SENTINEL_API_KEY` | 空 | 设置后所有 `/api/*` 请求必须带 `Authorization: Bearer <key>` |
+| `RELAY_SENTINEL_ALLOW_INSECURE_DEFAULTS` | `false` | 仅本地开发允许缺省弱密钥启动 |
+| `RELAY_SENTINEL_DISABLE_SCHEDULER` | `true` | 设为 `false` 启动后台定时巡检 |
+| `RELAY_SENTINEL_SCHEDULER_TICK_SECONDS` | `60` | 调度器巡检间隔（秒），默认每分钟扫描一次到期目标 |
 | `RELAY_SENTINEL_NOTIFICATION_DRY_RUN` | `true` | webhook 测试只 dry-run，不真实发送 |
 
 ## 4. 启动前端预览
@@ -270,8 +274,10 @@ mkdir -p data
 sudo tee /etc/relay-sentinel.env >/dev/null <<'EOF'
 RELAY_SENTINEL_DATABASE_URL=sqlite:////opt/relay-sentinel/data/relay_sentinel.db
 RELAY_SENTINEL_SECRET_KEY=请替换成足够长的随机字符串
-RELAY_SENTINEL_DISABLE_SCHEDULER=true
-RELAY_SENTINEL_NOTIFICATION_DRY_RUN=true
+RELAY_SENTINEL_API_KEY=请替换成足够长的随机访问密钥
+RELAY_SENTINEL_DISABLE_SCHEDULER=false
+RELAY_SENTINEL_NOTIFICATION_DRY_RUN=false
+RELAY_SENTINEL_SCHEDULER_TICK_SECONDS=60
 EOF
 ```
 
@@ -315,12 +321,11 @@ journalctl -u relay-sentinel -f
 
 这版已经能支撑 V1 合同测试，但还不是完整商业生产版：
 
-- 凭证封存是测试级替身，不是生产级 KMS/密钥轮换。
-- 后台 scheduler 还没有真正跑定时任务，当前以手动检查接口为主。
-- webhook 真实发送路径很薄，生产前要补超时、重试、签名、投递审计。
-- 没有用户登录和权限系统，不要直接暴露公网。
+- 凭证封存已使用随机化认证加密，但仍建议生产上配合严格文件权限、备份加密和密钥轮换。
+- 后台 scheduler 已支持定时巡检，设置 `RELAY_SENTINEL_DISABLE_SCHEDULER=false` 即可启用。每分钟扫描到期目标并自动执行余额/健康/额度检查。
+- webhook 已支持真实投递和投递审计，后续仍要补重试、签名和更多渠道模板。
+- 没有用户登录和多用户权限系统，公网部署至少必须设置 `RELAY_SENTINEL_API_KEY` 并放在 HTTPS 反代后。
 - SQLite 适合单机小规模，后续多实例部署要换成 PostgreSQL 或加锁策略。
 - 前端当前仍偏 PWA 预览，未完整接入后端真实 API。
 
 我的判断：下一步最值得做的是“真实后台调度 + webhook 投递审计 + 前端接后端”，而不是先做复杂权限或多租户。先让老板每天能稳定收到准确告警，这才是真正能变现的部分。
-

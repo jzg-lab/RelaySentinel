@@ -96,7 +96,7 @@ def test_quota_summary_matches_mobile_alert_copy_shape():
     assert "总剩余：86.7%" in summary
     assert "预测" in summary
     assert "近 1 小时：0.0%/小时" in summary
-    assert "过去 1 小时消耗速度：0.0%/小时" in summary
+    assert "近 3 小时：0.0%/小时" in summary
 
 
 def test_alert_cooling_suppresses_repeated_notifications():
