@@ -748,7 +748,7 @@ export default function App() {
   const visibleUpstreams = realMode ? backendUpstreams : mockUpstreams;
   const visiblePools = realMode ? backendPools : mockPools;
 
-  async function refreshTargets(settings = apiSettings, message = '刚刚同步真实后端数据') {
+  async function refreshTargets(settings = apiSettings, message = '刚刚同步真实后端数据', failurePrefix = '后端连接失败') {
     if (!hasApiCredentials(settings)) {
       setToast('未配置 API Key，当前显示预览数据');
       return;
@@ -762,7 +762,7 @@ export default function App() {
       setDefaultBusinessView(home.default_business_view || 'upstreams');
       setToast(message);
     } catch (error) {
-      setToast(error instanceof Error ? `后端连接失败：${error.message}` : '后端连接失败');
+      setToast(error instanceof Error ? `${failurePrefix}：${error.message}` : failurePrefix);
     }
   }
 
@@ -789,7 +789,7 @@ export default function App() {
     const saved = saveApiSettings(settings);
     setApiSettings(saved);
     setToast('后端连接已保存');
-    void refreshTargets(saved, '后端连接已保存');
+    void refreshTargets(saved, '后端连接已保存', '后端连接已保存，但连通测试失败');
   }
 
   async function handleCreated(message: string) {

@@ -113,6 +113,30 @@ describe('App workbench', () => {
     expect(document.body.textContent).toContain('后端连接已保存');
   });
 
+  it('keeps saved API settings even when the immediate backend probe fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Invalid API key' }, 401)));
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    await act(async () => {
+      createRoot(host).render(<App />);
+    });
+
+    await act(async () => {
+      findButton('设置').click();
+    });
+    await setField('apiBaseUrl', 'http://localhost:8000');
+    await setField('apiKey', 'bad-api-key');
+    await act(async () => {
+      findButton('保存连接').click();
+    });
+    await flushPromises();
+
+    expect(window.localStorage.getItem('relay-sentinel-api-settings')).toContain('bad-api-key');
+    expect(document.body.textContent).toContain('后端连接已保存');
+    expect(document.body.textContent).toContain('但连通测试失败：Invalid API key');
+  });
+
   it('submits a Sub2API upstream through the real backend API', async () => {
     const requests = installFetchMock();
     window.localStorage.setItem(
