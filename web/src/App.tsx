@@ -155,13 +155,19 @@ function UpstreamCard({ upstream }: { upstream: UpstreamItem | BackendUpstream }
   const renewal = isBackend ? renewalLabel(upstream.renewal?.kind || 'manual') : upstream.renewal;
   const status = isBackend ? upstream.status || 'pending_probe' : upstream.status;
 
+  const balanceText = isBackend
+    ? (upstream.last_balance_value != null
+        ? `${upstream.last_balance_value} ${upstream.last_balance_unit || ''}`.trim()
+        : '待巡检')
+    : upstream.balance;
+
   return (
     <article className="item-card">
       <div>
         <h3>{upstream.name}</h3>
         <p>
           {platformLabel(upstream.platform)}
-          {isBackend ? ` · ${upstream.base_url} · 阈值 ${threshold}` : ` · 余额 ${upstream.balance}，阈值 ${threshold}`}
+          {isBackend ? ` · ${upstream.base_url}` : ''} · 余额 {balanceText}，阈值 {threshold}
         </p>
       </div>
       <StatusPill status={status} />
@@ -171,15 +177,26 @@ function UpstreamCard({ upstream }: { upstream: UpstreamItem | BackendUpstream }
 }
 
 function BackendPoolCard({ pool }: { pool: BackendPool }) {
+  const healthTime = pool.last_health_checked_at
+    ? new Date(pool.last_health_checked_at).toLocaleString()
+    : '待巡检';
+  const quotaTime = pool.last_quota_checked_at
+    ? new Date(pool.last_quota_checked_at).toLocaleString()
+    : '待巡检';
+
   return (
     <article className="item-card">
       <div>
         <h3>{pool.name}</h3>
-        <p>{platformLabel(pool.platform)} · {pool.base_url} · 低于 {pool.quota_alert_threshold_hours ?? '-'}h 告警</p>
+        <p>
+          {platformLabel(pool.platform)} · {pool.base_url}
+          · 告警阈值 {pool.quota_alert_threshold_hours ?? '-'}h
+        </p>
       </div>
       <StatusPill status={pool.status || 'pending_probe'} />
       <div className="wide-note">
-        健康：{pool.last_health_checked_at || '待巡检'} · 额度：{pool.last_quota_checked_at || '待巡检'}
+        <div>账号健康：{healthTime}</div>
+        <div>额度巡检：{quotaTime}</div>
       </div>
     </article>
   );
@@ -323,9 +340,10 @@ function UpstreamForm({
   canSubmit: boolean;
   onCreated: (message: string) => Promise<void>;
 }) {
-  const platform: Platform = 'sub2api';
+  const [platform, setPlatform] = useState<Platform>('new_api');
   const [name, setName] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
+  const [adminToken, setAdminToken] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [thresholdValue, setThresholdValue] = useState('10');
@@ -334,11 +352,17 @@ function UpstreamForm({
   const [renewalInstructions, setRenewalInstructions] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const formValid = platform === 'new_api'
+    ? Boolean(name && baseUrl && adminToken)
+    : Boolean(name && baseUrl && email && password);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit || !formValid) return;
 
-    const credential: Record<string, string> = { kind: 'login', email, password };
+    const credential: Record<string, string> = platform === 'new_api'
+      ? { kind: 'admin_token', token: adminToken }
+      : { kind: 'login', email, password };
     const payload: CreateUpstreamPayload = {
       name,
       platform,
@@ -359,6 +383,7 @@ function UpstreamForm({
     try {
       await createUpstream(settings, payload);
       setPassword('');
+      setAdminToken('');
       await onCreated('上游已保存，凭证不会在页面回显');
     } finally {
       setSubmitting(false);
@@ -369,12 +394,13 @@ function UpstreamForm({
     <article className="add-card">
       <div>
         <h3>添加上游</h3>
-        <p>上游是你向别人购买的外部中转。当前先支持 Sub2API 账号密码；其他平台的普通用户余额接口确认后再接入。</p>
+        <p>上游是你向别人购买的外部中转。支持 New API（管理 Token）和 Sub2API（邮箱+密码）两种方式。</p>
       </div>
       <form className="target-form" onSubmit={handleSubmit}>
         <label>
           <span>平台</span>
-          <select name="upstreamPlatform" value={platform} disabled>
+          <select name="upstreamPlatform" value={platform} onChange={(event) => setPlatform(event.target.value as Platform)}>
+            <option value="new_api">New API</option>
             <option value="sub2api">Sub2API</option>
           </select>
         </label>
@@ -386,16 +412,23 @@ function UpstreamForm({
           <span>地址</span>
           <input name="upstreamBaseUrl" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://example.com" required />
         </label>
-        <div className="form-grid">
+        {platform === 'new_api' ? (
           <label>
-            <span>邮箱</span>
-            <input name="upstreamEmail" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="owner@example.com" required />
+            <span>管理 Token</span>
+            <input name="upstreamAdminToken" type="password" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} placeholder="sk-..." required />
           </label>
-          <label>
-            <span>密码</span>
-            <input name="upstreamPassword" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
-          </label>
-        </div>
+        ) : (
+          <div className="form-grid">
+            <label>
+              <span>邮箱</span>
+              <input name="upstreamEmail" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="owner@example.com" required />
+            </label>
+            <label>
+              <span>密码</span>
+              <input name="upstreamPassword" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+            </label>
+          </div>
+        )}
         <div className="form-grid">
           <label>
             <span>余额低于</span>
@@ -425,7 +458,7 @@ function UpstreamForm({
           />
         </label>
         {!canSubmit && <p className="form-warning">先到设置页保存后端地址和 API Key。</p>}
-        <button className="submit-button" type="submit" disabled={!canSubmit || submitting}>
+        <button className="submit-button" type="submit" disabled={!canSubmit || !formValid || submitting}>
           {submitting ? '保存中' : '保存上游'}
         </button>
       </form>
@@ -451,11 +484,17 @@ function PoolForm({
   const [quotaAlertThresholdHours, setQuotaAlertThresholdHours] = useState('5');
   const [submitting, setSubmitting] = useState(false);
 
+  const credentialValid = platform === 'new_api'
+    ? Boolean(adminToken)
+    : Boolean(adminToken || (email && password));
+
+  const formValid = Boolean(name && baseUrl && credentialValid);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit || !formValid) return;
 
-    const credential: Record<string, string> = platform === 'sub2api' && email && password
+    const credential: Record<string, string> = (platform === 'sub2api' && email && password && !adminToken)
       ? { kind: 'login', email, password }
       : { kind: 'admin_token', token: adminToken };
     const payload: CreatePoolPayload = {
@@ -535,7 +574,7 @@ function PoolForm({
           />
         </label>
         {!canSubmit && <p className="form-warning">先到设置页保存后端地址和 API Key。</p>}
-        <button className="submit-button" type="submit" disabled={!canSubmit || submitting}>
+        <button className="submit-button" type="submit" disabled={!canSubmit || !formValid || submitting}>
           {submitting ? '保存中' : '保存中转站'}
         </button>
       </form>

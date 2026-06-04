@@ -26,6 +26,8 @@ export interface BackendUpstream {
   };
   status?: string;
   last_balance_checked_at?: string | null;
+  last_balance_value?: number | null;
+  last_balance_unit?: string | null;
 }
 
 export interface BackendPool {
@@ -39,6 +41,13 @@ export interface BackendPool {
   status?: string;
   last_health_checked_at?: string | null;
   last_quota_checked_at?: string | null;
+  health_summary?: {
+    total?: number;
+    success?: number;
+    failed?: number;
+    should_alert?: boolean;
+    text?: string;
+  } | null;
 }
 
 export interface BackendAlert {

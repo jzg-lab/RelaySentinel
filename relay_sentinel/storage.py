@@ -42,6 +42,8 @@ class Store:
             "renewal": payload["renewal"],
             "status": "pending_probe",
             "last_balance_checked_at": None,
+            "last_balance_value": None,
+            "last_balance_unit": None,
             "created_at": utc_now_iso(),
             "updated_at": utc_now_iso(),
         }
@@ -50,9 +52,9 @@ class Store:
                 """
                 insert into upstreams (
                     id, name, platform, base_url, threshold_json, check_interval_seconds,
-                    renewal_json, status, last_balance_checked_at, credential_blob,
-                    created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    renewal_json, status, last_balance_checked_at, last_balance_value,
+                    last_balance_unit, credential_blob, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item["id"],
@@ -64,6 +66,8 @@ class Store:
                     _dumps(item["renewal"]),
                     item["status"],
                     item["last_balance_checked_at"],
+                    item["last_balance_value"],
+                    item["last_balance_unit"],
                     self.seal(payload.get("credential") or {}),
                     item["created_at"],
                     item["updated_at"],
@@ -131,15 +135,18 @@ class Store:
         *,
         status: str,
         checked_at: str,
+        balance_value: float | None = None,
+        balance_unit: str | None = None,
     ) -> dict[str, Any] | None:
         with self._connect() as connection:
             cursor = connection.execute(
                 """
                 update upstreams
-                set status = ?, last_balance_checked_at = ?, updated_at = ?
+                set status = ?, last_balance_checked_at = ?, last_balance_value = ?,
+                    last_balance_unit = ?, updated_at = ?
                 where id = ?
                 """,
-                (status, checked_at, checked_at, item_id),
+                (status, checked_at, balance_value, balance_unit, checked_at, item_id),
             )
         return self.get_upstream(item_id) if cursor.rowcount else None
 
@@ -277,6 +284,52 @@ class Store:
                 (status, checked_at, checked_at, item_id),
             )
         return self.get_pool(item_id) if cursor.rowcount else None
+
+    def record_pool_quota_snapshot(
+        self,
+        *,
+        pool_id: str,
+        checked_at: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        item = {
+            "id": _new_id("pqsnap"),
+            "pool_id": pool_id,
+            "checked_at": checked_at,
+            "payload_json": _dumps(payload),
+            "created_at": utc_now_iso(),
+        }
+        with self._connect() as connection:
+            connection.execute(
+                """
+                insert into pool_quota_snapshots (id, pool_id, checked_at, payload_json, created_at)
+                values (?, ?, ?, ?, ?)
+                """,
+                (item["id"], item["pool_id"], item["checked_at"], item["payload_json"], item["created_at"]),
+            )
+        return item
+
+    def list_pool_quota_snapshots(self, pool_id: str, *, limit: int = 5) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                select * from pool_quota_snapshots
+                where pool_id = ?
+                order by checked_at desc
+                limit ?
+                """,
+                (pool_id, limit),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "pool_id": row["pool_id"],
+                "checked_at": row["checked_at"],
+                "payload": json.loads(row["payload_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     def create_quota_source(self, pool_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         item = {
@@ -555,6 +608,8 @@ class Store:
                     renewal_json text not null,
                     status text not null,
                     last_balance_checked_at text,
+                    last_balance_value real,
+                    last_balance_unit text,
                     credential_blob text not null,
                     created_at text not null,
                     updated_at text not null
@@ -628,8 +683,18 @@ class Store:
                     error text,
                     created_at text not null
                 );
+
+                create table if not exists pool_quota_snapshots (
+                    id text primary key,
+                    pool_id text not null,
+                    checked_at text not null,
+                    payload_json text not null,
+                    created_at text not null
+                );
                 """
             )
+            # v2 migration: add balance columns if missing on existing tables
+            _migrate_upstream_balance_columns(connection)
 
 
 def _sqlite_path(database_url: str) -> str:
@@ -711,6 +776,8 @@ def _upstream_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "renewal": json.loads(row["renewal_json"]),
         "status": row["status"],
         "last_balance_checked_at": row["last_balance_checked_at"],
+        "last_balance_value": row["last_balance_value"],
+        "last_balance_unit": row["last_balance_unit"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -762,3 +829,15 @@ def _event_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "snoozed_until": row["snoozed_until"],
         "resolved_at": row["resolved_at"],
     }
+
+
+def _migrate_upstream_balance_columns(connection: sqlite3.Connection) -> None:
+    """Add balance columns to existing upstreams tables if missing (v2 migration)."""
+    existing = {
+        row[1]
+        for row in connection.execute("pragma table_info('upstreams')").fetchall()
+    }
+    if "last_balance_value" not in existing:
+        connection.execute("alter table upstreams add column last_balance_value real")
+    if "last_balance_unit" not in existing:
+        connection.execute("alter table upstreams add column last_balance_unit text")

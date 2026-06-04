@@ -80,7 +80,13 @@ def create_app(settings: Optional[Dict[str, Any]] = None) -> FastAPI:
         threshold = upstream.get("threshold") or {}
         is_triggered = _threshold_triggered(float(signal.value), threshold)
         status = "low_balance" if is_triggered else "active"
-        store.record_upstream_balance_check(upstream_id, status=status, checked_at=checked_at)
+        store.record_upstream_balance_check(
+            upstream_id,
+            status=status,
+            checked_at=checked_at,
+            balance_value=float(signal.value),
+            balance_unit=signal.unit,
+        )
         decision = evaluate_alert(
             target_id=upstream_id,
             rule_id="upstream-low-balance",
@@ -209,20 +215,46 @@ def create_app(settings: Optional[Dict[str, Any]] = None) -> FastAPI:
                 "checked_at": checked_at,
             }
 
+        raw_current = quota_payload["current"]
+        current_checked_at = raw_current["checked_at"]
+        current_checked_at_text = current_checked_at.isoformat() if isinstance(current_checked_at, datetime) else str(current_checked_at)
+
+        # persist raw snapshot for history
+        store.record_pool_quota_snapshot(
+            pool_id=pool_id,
+            checked_at=current_checked_at_text,
+            payload=raw_current,
+        )
+
+        # build history from stored snapshots (newest first, exclude current)
+        snapshots = store.list_pool_quota_snapshots(pool_id, limit=10)
+        history: list[dict[str, Any]] = []
+        for snap in snapshots[1:]:
+            snap_payload = snap["payload"]
+            snap_payload["checked_at"] = _parse_datetime(snap["checked_at"])
+            history.append(snap_payload)
+
+        # normalise adapter output → predict_pool_quota format
+        current_for_predict, history_for_predict = _normalize_quota_for_prediction(
+            platform=pool.get("platform", ""),
+            raw_current=raw_current,
+            current_checked_at=current_checked_at if isinstance(current_checked_at, datetime) else _parse_datetime(current_checked_at_text),
+            raw_history=history,
+        )
+
         prediction = predict_pool_quota(
-            current=quota_payload["current"],
-            history=quota_payload.get("history") or [],
+            current=current_for_predict,
+            history=history_for_predict,
             alert_threshold_hours=float(pool.get("quota_alert_threshold_hours", 5)),
         )
-        current_checked_at = quota_payload["current"]["checked_at"]
-        checked_at_text = current_checked_at.isoformat() if isinstance(current_checked_at, datetime) else str(current_checked_at)
+
         status = "low_quota" if prediction["should_alert"] else "active"
-        store.record_pool_quota_check(pool_id, status=status, checked_at=checked_at_text)
+        store.record_pool_quota_check(pool_id, status=status, checked_at=current_checked_at_text)
         decision = evaluate_alert(
             target_id=pool_id,
             rule_id="pool-quota-hours",
             is_triggered=bool(prediction["should_alert"]),
-            now=_parse_datetime(checked_at_text),
+            now=_parse_datetime(current_checked_at_text),
             previous_events=store.list_alert_events(target_id=pool_id),
             cooldown_seconds=21600,
         )
@@ -236,7 +268,7 @@ def create_app(settings: Optional[Dict[str, Any]] = None) -> FastAPI:
                     "title": "号池额度即将耗尽",
                     "message": prediction["summary"],
                     "action": decision["action"],
-                    "created_at": checked_at_text,
+                    "created_at": current_checked_at_text,
                 }
             )
         return {
@@ -247,7 +279,7 @@ def create_app(settings: Optional[Dict[str, Any]] = None) -> FastAPI:
             "status": status,
             "prediction": prediction,
             "alert_action": decision["action"],
-            "checked_at": checked_at_text,
+            "checked_at": current_checked_at_text,
         }
 
     # ------------------------------------------------------------------
@@ -387,8 +419,7 @@ def create_app(settings: Optional[Dict[str, Any]] = None) -> FastAPI:
     @app.patch("/api/upstreams/{upstream_id}")
     async def patch_upstream(upstream_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         current = _get_upstream_or_404(store, upstream_id)
-        candidate = {**current, **payload}
-        _validate_upstream(candidate, partial=False)
+        _validate_upstream(payload, partial=True)
         updated = store.update_upstream(upstream_id, payload)
         if updated is None:
             raise HTTPException(status_code=404, detail="Upstream not found")
@@ -427,8 +458,7 @@ def create_app(settings: Optional[Dict[str, Any]] = None) -> FastAPI:
     @app.patch("/api/pools/{pool_id}")
     async def patch_pool(pool_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         current = _get_pool_or_404(store, pool_id)
-        candidate = {**current, **payload}
-        _validate_pool(candidate, partial=False)
+        _validate_pool(payload, partial=True)
         updated = store.update_pool(pool_id, payload)
         if updated is None:
             raise HTTPException(status_code=404, detail="Pool not found")
@@ -594,30 +624,36 @@ def create_app(settings: Optional[Dict[str, Any]] = None) -> FastAPI:
 # ------------------------------------------------------------------
 
 def _validate_upstream(payload: Dict[str, Any], *, partial: bool) -> None:
-    _require(payload, ["name", "platform", "base_url", "threshold", "renewal"])
-    if payload.get("platform") not in ALLOWED_TARGET_PLATFORMS:
+    if not partial:
+        _require(payload, ["name", "platform", "base_url", "threshold", "renewal"])
+    if "platform" in payload and payload.get("platform") not in ALLOWED_TARGET_PLATFORMS:
         _invalid("Upstream platform only supports new_api or sub2api; CLIProxyAPI/CPA are not external upstreams.")
-    _validate_http_url(payload.get("base_url"))
-    threshold = payload.get("threshold") or {}
-    if float(threshold.get("value", 0)) <= 0:
-        _invalid("threshold.value must be greater than 0.")
-    renewal = payload.get("renewal") or {}
-    if renewal.get("kind") not in ALLOWED_RENEWALS:
-        _invalid("renewal.kind must be manual, contact_owner, or payment_link.")
-    if int(payload.get("check_interval_seconds", 1800)) <= 0:
+    if "base_url" in payload:
+        _validate_http_url(payload.get("base_url"))
+    if "threshold" in payload:
+        threshold = payload.get("threshold") or {}
+        if float(threshold.get("value", 0)) <= 0:
+            _invalid("threshold.value must be greater than 0.")
+    if "renewal" in payload:
+        renewal = payload.get("renewal") or {}
+        if renewal.get("kind") not in ALLOWED_RENEWALS:
+            _invalid("renewal.kind must be manual, contact_owner, or payment_link.")
+    if "check_interval_seconds" in payload and int(payload.get("check_interval_seconds", 1800)) <= 0:
         _invalid("check_interval_seconds must be greater than 0.")
 
 
 def _validate_pool(payload: Dict[str, Any], *, partial: bool) -> None:
-    _require(payload, ["name", "platform", "base_url", "quota_alert_threshold_hours"])
-    if payload.get("platform") not in ALLOWED_TARGET_PLATFORMS:
+    if not partial:
+        _require(payload, ["name", "platform", "base_url", "quota_alert_threshold_hours"])
+    if "platform" in payload and payload.get("platform") not in ALLOWED_TARGET_PLATFORMS:
         _invalid("Pool platform only supports new_api or sub2api; CLIProxyAPI/CPA must be quota sources.")
-    _validate_http_url(payload.get("base_url"))
-    if float(payload.get("quota_alert_threshold_hours", 0)) <= 0:
+    if "base_url" in payload:
+        _validate_http_url(payload.get("base_url"))
+    if "quota_alert_threshold_hours" in payload and float(payload.get("quota_alert_threshold_hours", 0)) <= 0:
         _invalid("quota_alert_threshold_hours must be greater than 0.")
-    if int(payload.get("health_check_interval_seconds", 600)) <= 0:
+    if "health_check_interval_seconds" in payload and int(payload.get("health_check_interval_seconds", 600)) <= 0:
         _invalid("health_check_interval_seconds must be greater than 0.")
-    if int(payload.get("quota_check_interval_seconds", 5400)) <= 0:
+    if "quota_check_interval_seconds" in payload and int(payload.get("quota_check_interval_seconds", 5400)) <= 0:
         _invalid("quota_check_interval_seconds must be greater than 0.")
 
 
@@ -717,6 +753,71 @@ def _threshold_triggered(value: float, threshold: Dict[str, Any]) -> bool:
     return False
 
 
+def _normalize_quota_for_prediction(
+    *,
+    platform: str,
+    raw_current: Dict[str, Any],
+    current_checked_at: datetime,
+    raw_history: list[Dict[str, Any]],
+) -> tuple[Dict[str, Any], list[Dict[str, Any]]]:
+    """Convert adapter-specific quota payloads into the format predict_pool_quota expects.
+
+    NewAPI adapters already return five_hour_remaining_percent / seven_day_remaining_percent.
+    Sub2API adapters return a raw balance — we convert it to a percentage relative to
+    the earliest observed balance (first snapshot = 100%).
+    """
+    if platform == "sub2api":
+        current_balance = float(raw_current.get("balance", 0))
+        all_balances = [current_balance]
+        for h in raw_history:
+            all_balances.append(float(h.get("balance", 0)))
+        baseline = max(all_balances) if all_balances else (current_balance or 1.0)
+        if baseline <= 0:
+            baseline = 1.0
+
+        def _to_pct(b: float) -> float:
+            return round(b / baseline * 100, 2)
+
+        current_pct = _to_pct(current_balance)
+        current_out = {
+            "checked_at": current_checked_at,
+            "five_hour_remaining_percent": current_pct,
+            "seven_day_remaining_percent": current_pct,
+            "balance": current_balance,
+        }
+        history_out = []
+        for h in raw_history:
+            h_checked = h.get("checked_at")
+            if isinstance(h_checked, str):
+                h_checked = _parse_datetime(h_checked)
+            h_balance = float(h.get("balance", 0))
+            history_out.append({
+                "checked_at": h_checked,
+                "five_hour_remaining_percent": _to_pct(h_balance),
+                "seven_day_remaining_percent": _to_pct(h_balance),
+                "balance": h_balance,
+            })
+        return current_out, history_out
+
+    # new_api (or default): adapter provides percentages directly
+    current_out = {
+        "checked_at": current_checked_at,
+        "five_hour_remaining_percent": float(raw_current.get("five_hour_remaining_percent", 100)),
+        "seven_day_remaining_percent": float(raw_current.get("seven_day_remaining_percent", 100)),
+    }
+    history_out = []
+    for h in raw_history:
+        h_checked = h.get("checked_at")
+        if isinstance(h_checked, str):
+            h_checked = _parse_datetime(h_checked)
+        history_out.append({
+            "checked_at": h_checked,
+            "five_hour_remaining_percent": float(h.get("five_hour_remaining_percent", 100)),
+            "seven_day_remaining_percent": float(h.get("seven_day_remaining_percent", 100)),
+        })
+    return current_out, history_out
+
+
 def _default_adapter_factory(upstream: Dict[str, Any], credential: Dict[str, Any]):
     platform = upstream.get("platform")
     if platform == "new_api":
@@ -734,7 +835,22 @@ def _default_adapter_factory(upstream: Dict[str, Any], credential: Dict[str, Any
 
 
 def _default_pool_checker_factory(pool: Dict[str, Any], credential: Dict[str, Any]):
-    return _UnsupportedPoolChecker()
+    platform = pool.get("platform")
+    if platform == "new_api":
+        token = credential.get("token") or credential.get("admin_token")
+        if not token:
+            raise ValueError("new_api pool requires an admin token credential")
+        return NewAPIAdapter(base_url=pool["base_url"], admin_token=token)
+    if platform == "sub2api":
+        token = credential.get("token") or credential.get("admin_token")
+        if token:
+            return NewAPIAdapter(base_url=pool["base_url"], admin_token=token)
+        email = credential.get("email")
+        password = credential.get("password")
+        if email and password:
+            return Sub2APIAdapter(base_url=pool["base_url"], email=email, password=password)
+        raise ValueError("sub2api pool requires admin token or email+password credentials")
+    raise ValueError("unsupported pool platform")
 
 
 class _UnsupportedPoolChecker:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -14,7 +15,8 @@ class Sub2APIAdapter:
         self.email = email
         self.password = password
 
-    async def fetch_balance(self, *, http_client: httpx.AsyncClient | None = None) -> BalanceSignal:
+    async def _login_and_get_me(self, *, http_client: httpx.AsyncClient | None = None) -> dict[str, Any]:
+        """Login and return the /auth/me user data dict."""
         owns_client = http_client is None
         client = http_client or httpx.AsyncClient(base_url=self.base_url)
         try:
@@ -30,22 +32,58 @@ class Sub2APIAdapter:
             me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {access_token}"})
             me_payload = _json_or_text(me)
             _raise_for_auth_problem(me.status_code, me_payload)
-            data = me_payload.get("data") or {}
-            value = data.get("balance", data.get("quota"))
-            if value is None:
-                raise AdapterAuthError("credential accepted but balance signal is missing")
-            return BalanceSignal(
-                target_kind="upstream",
-                platform="sub2api",
-                metric="balance",
-                value=float(value),
-                unit="USD",
-                confidence="confirmed",
-                raw={"user_id": data.get("id")},
-            )
+            return me_payload.get("data") or {}
         finally:
             if owns_client:
                 await client.aclose()
+
+    async def fetch_balance(self, *, http_client: httpx.AsyncClient | None = None) -> BalanceSignal:
+        data = await self._login_and_get_me(http_client=http_client)
+        value = data.get("balance", data.get("quota"))
+        if value is None:
+            raise AdapterAuthError("credential accepted but balance signal is missing")
+        return BalanceSignal(
+            target_kind="upstream",
+            platform="sub2api",
+            metric="balance",
+            value=float(value),
+            unit="USD",
+            confidence="confirmed",
+            raw={"user_id": data.get("id")},
+        )
+
+    async def fetch_account_health(self, *, http_client: httpx.AsyncClient | None = None) -> dict[str, Any]:
+        """Return single-account health by verifying login and /me access."""
+        data = await self._login_and_get_me(http_client=http_client)
+        user_id = str(data.get("id", "me"))
+        return {
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "accounts": [
+                {
+                    "id": user_id,
+                    "name": data.get("email", user_id),
+                    "status": "ok",
+                }
+            ],
+        }
+
+    async def fetch_quota(self, *, http_client: httpx.AsyncClient | None = None) -> dict[str, Any]:
+        """Return quota snapshot for pool quota prediction.
+
+        Sub2API only exposes a single balance / quota value per user account.
+        We use that value as both five_hour and seven_day remaining percentages
+        (normalised against the first observed value by the app layer).
+        """
+        data = await self._login_and_get_me(http_client=http_client)
+        balance = float(data.get("balance", data.get("quota", 0)))
+        return {
+            "current": {
+                "checked_at": datetime.now(timezone.utc),
+                "balance": balance,
+                "user_id": data.get("id"),
+            },
+            "history": [],
+        }
 
 
 async def detect_sub2api_site(

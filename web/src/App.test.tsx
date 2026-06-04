@@ -52,7 +52,7 @@ describe('App workbench', () => {
     expect(sectionTitles[0]).toBe('号池快照');
   });
 
-  it('keeps admin-only New API credentials out of the external upstream form', async () => {
+  it('supports both New API and Sub2API platforms in the external upstream form', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
 
@@ -65,10 +65,18 @@ describe('App workbench', () => {
     });
 
     const upstreamAdd = findArticle('添加上游');
+    // Both platforms are available; default is new_api which shows admin token
+    expect(upstreamAdd.textContent).toContain('New API');
     expect(upstreamAdd.textContent).toContain('Sub2API');
-    expect(upstreamAdd.textContent).not.toContain('New API');
-    expect(upstreamAdd.textContent).not.toContain('管理 Token');
     expect(upstreamAdd.textContent).not.toContain('CLIProxyAPI');
+    // new_api selected by default → admin token field visible, email fields hidden
+    expect(document.querySelector('[name="upstreamAdminToken"]')).not.toBeNull();
+    expect(document.querySelector('[name="upstreamEmail"]')).toBeNull();
+
+    // Switch to sub2api → email/password fields appear, admin token hidden
+    await setField('upstreamPlatform', 'sub2api');
+    expect(document.querySelector('[name="upstreamEmail"]')).not.toBeNull();
+    expect(document.querySelector('[name="upstreamPassword"]')).not.toBeNull();
     expect(document.querySelector('[name="upstreamAdminToken"]')).toBeNull();
 
     await act(async () => {
@@ -115,7 +123,7 @@ describe('App workbench', () => {
     expect(document.body.textContent).toContain('API Key：owne...-key');
   });
 
-  it('enables upstream creation immediately after saving API settings', async () => {
+  it('enables upstream creation immediately after saving API settings and filling form', async () => {
     installFetchMock();
     const host = document.createElement('div');
     document.body.appendChild(host);
@@ -139,6 +147,12 @@ describe('App workbench', () => {
     });
 
     expect(document.body.textContent).not.toContain('先到设置页保存后端地址和 API Key');
+    // Form needs fields filled before the button enables
+    await setField('upstreamName', '测试上游');
+    await setField('upstreamBaseUrl', 'https://example.com');
+    await setField('upstreamAdminToken', 'sk-test-token');
+    await setField('upstreamThresholdValue', '10');
+    await setField('upstreamRenewalInstructions', '联系群主');
     expect(findButton('保存上游').disabled).toBe(false);
   });
 
@@ -183,6 +197,7 @@ describe('App workbench', () => {
     await act(async () => {
       findButton('上游').click();
     });
+    await setField('upstreamPlatform', 'sub2api');
     await setField('upstreamName', '词元 fast');
     await setField('upstreamBaseUrl', 'https://ciyuan.fast');
     await setField('upstreamEmail', 'owner@example.com');
