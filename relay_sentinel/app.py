@@ -218,19 +218,20 @@ def create_app(settings: Optional[Dict[str, Any]] = None) -> FastAPI:
         raw_current = quota_payload["current"]
         current_checked_at = raw_current["checked_at"]
         current_checked_at_text = current_checked_at.isoformat() if isinstance(current_checked_at, datetime) else str(current_checked_at)
+        snapshot_payload = {**raw_current, "checked_at": current_checked_at_text}
 
         # persist raw snapshot for history
         store.record_pool_quota_snapshot(
             pool_id=pool_id,
             checked_at=current_checked_at_text,
-            payload=raw_current,
+            payload=snapshot_payload,
         )
 
-        # build history from stored snapshots (newest first, exclude current)
+        # build history from adapter-provided samples plus stored snapshots (newest first, exclude current)
         snapshots = store.list_pool_quota_snapshots(pool_id, limit=10)
-        history: list[dict[str, Any]] = []
+        history: list[dict[str, Any]] = [dict(item) for item in quota_payload.get("history", [])]
         for snap in snapshots[1:]:
-            snap_payload = snap["payload"]
+            snap_payload = dict(snap["payload"])
             snap_payload["checked_at"] = _parse_datetime(snap["checked_at"])
             history.append(snap_payload)
 
@@ -766,7 +767,11 @@ def _normalize_quota_for_prediction(
     Sub2API adapters return a raw balance — we convert it to a percentage relative to
     the earliest observed balance (first snapshot = 100%).
     """
-    if platform == "sub2api":
+    has_percent_buckets = (
+        "five_hour_remaining_percent" in raw_current
+        and "seven_day_remaining_percent" in raw_current
+    )
+    if platform == "sub2api" and not has_percent_buckets:
         current_balance = float(raw_current.get("balance", 0))
         all_balances = [current_balance]
         for h in raw_history:

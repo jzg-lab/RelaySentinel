@@ -70,6 +70,10 @@ function normalizeStatus(status: string): 'normal' | 'warning' | 'critical' | st
   return status;
 }
 
+function isActionableWarningStatus(status?: string): boolean {
+  return ['warning', 'critical', 'low_balance', 'low_quota', 'unhealthy', 'failed', 'blocked'].includes(status || 'normal');
+}
+
 function StatusPill({ status }: { status: string }) {
   const normalized = normalizeStatus(status);
   return <span className={`status ${normalized}`}>{statusLabel(status)}</span>;
@@ -251,10 +255,10 @@ function HomePage({
   const activeAlerts = alerts.filter((alert) => !alert.acknowledged && !alert.snoozed);
   const primaryAlert = activeAlerts[0];
   const showUpstreamsFirst = defaultBusinessView === 'upstreams';
-  const upstreamWarningCount = upstreams.filter((item) => normalizeStatus(item.status || 'normal') !== 'normal').length;
+  const upstreamWarningCount = upstreams.filter((item) => isActionableWarningStatus(item.status)).length;
   const poolWarningCount = pools.filter((pool) => {
     if ('failedAccounts' in pool) return pool.failedAccounts > 0;
-    return normalizeStatus(pool.status || 'normal') !== 'normal';
+    return isActionableWarningStatus(pool.status);
   }).length;
 
   return (

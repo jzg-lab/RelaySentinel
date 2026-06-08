@@ -180,6 +180,49 @@ describe('App workbench', () => {
     expect(document.body.textContent).toContain('但连通测试失败：Invalid API key');
   });
 
+  it('does not count pending backend targets as warnings on the workbench', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      upstreams: [{
+        id: 'up_pending',
+        kind: 'upstream',
+        name: '待巡检上游',
+        platform: 'sub2api',
+        base_url: 'https://ciyuan.fast',
+        threshold: { metric: 'balance', operator: 'lt', value: 10, unit: 'USD' },
+        renewal: { kind: 'contact_owner', instructions: '联系群主' },
+        status: 'pending_probe'
+      }],
+      pools: [{
+        id: 'pool_pending',
+        kind: 'pool',
+        ownership: 'owned',
+        name: '待巡检号池',
+        platform: 'sub2api',
+        base_url: 'https://self.example.com',
+        quota_alert_threshold_hours: 5,
+        status: 'pending_probe'
+      }],
+      alerts: [],
+      default_business_view: 'upstreams'
+    })));
+    window.localStorage.setItem(
+      'relay-sentinel-api-settings',
+      JSON.stringify({ baseUrl: 'http://localhost:8000', apiKey: 'owner-api-key' })
+    );
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    await act(async () => {
+      createRoot(host).render(<App />);
+    });
+    await flushPromises();
+
+    const summary = Array.from(document.querySelectorAll('.mini')).map((node) => node.textContent);
+
+    expect(summary).toEqual(['上游预警0', '号池预警0', '未处理0']);
+    expect(document.body.textContent).toContain('今天没有必须处理的事');
+  });
+
   it('submits a Sub2API upstream through the real backend API', async () => {
     const requests = installFetchMock();
     window.localStorage.setItem(
