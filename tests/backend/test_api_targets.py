@@ -111,7 +111,11 @@ def test_create_pool_is_owned_resource_and_can_reference_advanced_quota_source(c
             "name": "自营 Sub2API 号池",
             "platform": "sub2api",
             "base_url": "https://self.example.com",
-            "credential": {"kind": "admin_token", "token": "secret-admin-token"},
+            "credential": {
+                "kind": "login",
+                "email": "owner@example.com",
+                "password": "secret-password",
+            },
             "health_check_interval_seconds": 600,
             "quota_check_interval_seconds": 5400,
             "quota_alert_threshold_hours": 5,
@@ -123,7 +127,7 @@ def test_create_pool_is_owned_resource_and_can_reference_advanced_quota_source(c
     assert pool["kind"] == "pool"
     assert pool["platform"] == "sub2api"
     assert pool["ownership"] == "owned"
-    assert "secret-admin-token" not in str(pool)
+    assert "secret-password" not in str(pool)
 
     source = client.post(
         f"/api/pools/{pool['id']}/quota-sources",
@@ -140,6 +144,30 @@ def test_create_pool_is_owned_resource_and_can_reference_advanced_quota_source(c
     assert source_body["pool_id"] == pool["id"]
     assert source_body["status"] in {"pending_probe", "available", "unavailable"}
     assert "secret-cpa-token" not in str(source_body)
+
+
+def test_create_sub2api_pool_rejects_new_api_style_admin_token(client):
+    response = client.post(
+        "/api/pools",
+        json=pool_payload(credential={"kind": "admin_token", "token": "secret-admin-token"}),
+    )
+
+    assert response.status_code == 422
+    assert "email and password" in response.text
+    assert "admin token" in response.text.lower()
+
+
+def test_patch_sub2api_pool_rejects_new_api_style_admin_token(client):
+    pool = client.post("/api/pools", json=pool_payload()).json()
+
+    response = client.patch(
+        f"/api/pools/{pool['id']}",
+        json={"credential": {"kind": "admin_token", "token": "secret-admin-token"}},
+    )
+
+    assert response.status_code == 422
+    assert "email and password" in response.text
+    assert "admin token" in response.text.lower()
 
 
 def test_pool_validation_rejects_external_only_or_invalid_inputs(client):
@@ -189,7 +217,7 @@ def test_pool_crud_never_exposes_credentials_and_removes_from_mobile_home(client
     assert patched.json()["quota_alert_threshold_hours"] == 7
 
     combined = f"{listed.text}\n{detail.text}\n{patched.text}"
-    assert "secret-admin-token" not in combined
+    assert "secret-password" not in combined
     assert "rotated-pool-secret" not in combined
 
     deleted = client.delete(f"/api/pools/{pool_id}")

@@ -2,10 +2,17 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   createPool,
   createUpstream,
+  deletePool,
+  deleteUpstream,
   getApiSettings,
   hasApiCredentials,
   listTargets,
+  runPoolHealthCheck,
+  runPoolQuotaCheck,
+  runUpstreamBalanceCheck,
   saveApiSettings,
+  updatePool,
+  updateUpstream,
   type ApiSettings,
   type BackendAlert,
   type BackendPool,
@@ -13,7 +20,9 @@ import {
   type CreatePoolPayload,
   type CreateUpstreamPayload,
   type Platform,
-  type RenewalKind
+  type RenewalKind,
+  type UpdatePoolPayload,
+  type UpdateUpstreamPayload
 } from './api';
 import {
   initialAlerts,
@@ -151,8 +160,34 @@ function PoolQuotaCard({ pool }: { pool: PoolItem }) {
   );
 }
 
-function UpstreamCard({ upstream }: { upstream: UpstreamItem | BackendUpstream }) {
+function UpstreamCard({
+  upstream,
+  managementMode = false,
+  onUpdate,
+  onDelete,
+  onRunBalanceCheck
+}: {
+  upstream: UpstreamItem | BackendUpstream;
+  managementMode?: boolean;
+  onUpdate?: (id: string, payload: UpdateUpstreamPayload) => Promise<void>;
+  onDelete?: (id: string) => Promise<void>;
+  onRunBalanceCheck?: (id: string) => Promise<void>;
+}) {
   const isBackend = 'base_url' in upstream;
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(upstream.name);
+  const [baseUrl, setBaseUrl] = useState(isBackend ? upstream.base_url : '');
+  const [thresholdValue, setThresholdValue] = useState(isBackend ? String(upstream.threshold?.value ?? 10) : '10');
+  const [thresholdUnit, setThresholdUnit] = useState(isBackend ? upstream.threshold?.unit || 'USD' : 'USD');
+  const [renewalKind, setRenewalKind] = useState<RenewalKind>(isBackend ? upstream.renewal?.kind || 'manual' : 'manual');
+  const [renewalInstructions, setRenewalInstructions] = useState(
+    isBackend ? upstream.renewal?.url || upstream.renewal?.instructions || '' : ''
+  );
+  const [credentialToken, setCredentialToken] = useState('');
+  const [credentialEmail, setCredentialEmail] = useState('');
+  const [credentialPassword, setCredentialPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [checkingBalance, setCheckingBalance] = useState(false);
   const threshold = isBackend
     ? `${upstream.threshold?.value ?? '-'} ${upstream.threshold?.unit ?? ''}`.trim()
     : upstream.threshold;
@@ -165,28 +200,353 @@ function UpstreamCard({ upstream }: { upstream: UpstreamItem | BackendUpstream }
         : '待巡检')
     : upstream.balance;
 
+  useEffect(() => {
+    setEditing(false);
+  }, [managementMode]);
+
+  useEffect(() => {
+    setName(upstream.name);
+    if (isBackend) {
+      setBaseUrl(upstream.base_url);
+      setThresholdValue(String(upstream.threshold?.value ?? 10));
+      setThresholdUnit(upstream.threshold?.unit || 'USD');
+      setRenewalKind(upstream.renewal?.kind || 'manual');
+      setRenewalInstructions(upstream.renewal?.url || upstream.renewal?.instructions || '');
+      setCredentialToken('');
+      setCredentialEmail('');
+      setCredentialPassword('');
+    }
+  }, [isBackend, upstream]);
+
+  async function handleSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!isBackend || !onUpdate) return;
+
+    const credential: Record<string, string> | undefined = upstream.platform === 'new_api'
+      ? (credentialToken ? { kind: 'admin_token', token: credentialToken } : undefined)
+      : (credentialEmail || credentialPassword
+          ? { kind: 'login', email: credentialEmail, password: credentialPassword }
+          : undefined);
+    if (upstream.platform === 'sub2api' && (credentialEmail || credentialPassword) && !(credentialEmail && credentialPassword)) {
+      return;
+    }
+    const payload: UpdateUpstreamPayload = {
+      name,
+      base_url: baseUrl,
+      ...(credential ? { credential } : {}),
+      threshold: {
+        metric: 'balance',
+        operator: 'lt',
+        value: Number(thresholdValue),
+        unit: thresholdUnit
+      },
+      renewal: renewalKind === 'payment_link'
+        ? { kind: renewalKind, label: '购买额度', url: renewalInstructions }
+        : { kind: renewalKind, instructions: renewalInstructions }
+    };
+
+    setSubmitting(true);
+    try {
+      await onUpdate(upstream.id, payload);
+      setEditing(false);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleRunBalanceCheck() {
+    if (!isBackend || !onRunBalanceCheck) return;
+
+    setCheckingBalance(true);
+    try {
+      await onRunBalanceCheck(upstream.id);
+    } finally {
+      setCheckingBalance(false);
+    }
+  }
+
+  if (isBackend && managementMode && editing) {
+    return (
+      <article className="item-card edit-card">
+        <form className="target-form" onSubmit={handleSave}>
+          <label>
+            <span>名称</span>
+            <input name="editUpstreamName" value={name} onChange={(event) => setName(event.target.value)} required />
+          </label>
+          <label>
+            <span>地址</span>
+            <input name="editUpstreamBaseUrl" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required />
+          </label>
+          <div className="form-grid">
+            <label>
+              <span>余额低于</span>
+              <input name="editUpstreamThresholdValue" type="number" min="0.01" step="0.01" value={thresholdValue} onChange={(event) => setThresholdValue(event.target.value)} required />
+            </label>
+            <label>
+              <span>单位</span>
+              <input name="editUpstreamThresholdUnit" value={thresholdUnit} onChange={(event) => setThresholdUnit(event.target.value)} required />
+            </label>
+          </div>
+          <label>
+            <span>续费方式</span>
+            <select name="editUpstreamRenewalKind" value={renewalKind} onChange={(event) => setRenewalKind(event.target.value as RenewalKind)}>
+              <option value="contact_owner">联系群主</option>
+              <option value="manual">手动说明</option>
+              <option value="payment_link">支付链接</option>
+            </select>
+          </label>
+          <label>
+            <span>{renewalKind === 'payment_link' ? '购买链接' : '处理说明'}</span>
+            <textarea
+              name="editUpstreamRenewalInstructions"
+              value={renewalInstructions}
+              onChange={(event) => setRenewalInstructions(event.target.value)}
+              required
+            />
+          </label>
+          {upstream.platform === 'new_api' ? (
+            <label>
+              <span>更新管理 Token</span>
+              <input
+                name="editUpstreamAdminToken"
+                type="password"
+                value={credentialToken}
+                onChange={(event) => setCredentialToken(event.target.value)}
+                placeholder="留空则不修改"
+              />
+            </label>
+          ) : (
+            <div className="form-grid">
+              <label>
+                <span>更新邮箱</span>
+                <input
+                  name="editUpstreamEmail"
+                  value={credentialEmail}
+                  onChange={(event) => setCredentialEmail(event.target.value)}
+                  placeholder="留空则不修改"
+                />
+              </label>
+              <label>
+                <span>更新密码</span>
+                <input
+                  name="editUpstreamPassword"
+                  type="password"
+                  value={credentialPassword}
+                  onChange={(event) => setCredentialPassword(event.target.value)}
+                  placeholder="留空则不修改"
+                />
+              </label>
+            </div>
+          )}
+          <div className="management-actions">
+            <button className="submit-button" type="submit" disabled={submitting}>{submitting ? '保存中' : '保存修改'}</button>
+            <button className="secondary-button" type="button" onClick={() => setEditing(false)}>取消</button>
+          </div>
+        </form>
+      </article>
+    );
+  }
+
   return (
     <article className="item-card">
       <div>
         <h3>{upstream.name}</h3>
         <p>
           {platformLabel(upstream.platform)}
-          {isBackend ? ` · ${upstream.base_url}` : ''} · 余额 {balanceText}，阈值 {threshold}
+          {isBackend ? ` · ${upstream.base_url}` : ''} · 阈值 {threshold}
         </p>
       </div>
       <StatusPill status={status} />
-      <button className="wide-button">{renewal}</button>
+      <div className={`balance-metric ${status === 'failed' || status === 'blocked' ? 'failed' : ''}`}>
+        <span>余额</span>
+        <strong>{balanceText}</strong>
+      </div>
+      <button
+        className="wide-button"
+        type="button"
+        onClick={() => {
+          if (isBackend && upstream.renewal?.kind === 'payment_link' && upstream.renewal.url) {
+            window.open(upstream.renewal.url, '_blank', 'noopener,noreferrer');
+          }
+        }}
+      >
+        {isBackend ? upstream.renewal?.label || renewal : renewal}
+      </button>
+      {isBackend && (
+        <button className="wide-button check-button" type="button" onClick={() => void handleRunBalanceCheck()} disabled={checkingBalance}>
+          {checkingBalance ? '巡检中' : '查余额'}
+        </button>
+      )}
+      {isBackend && managementMode && (
+        <div className="management-actions">
+          <button className="secondary-button" type="button" onClick={() => setEditing(true)}>编辑</button>
+          <button className="danger-button" type="button" onClick={() => void onDelete?.(upstream.id)}>删除</button>
+        </div>
+      )}
     </article>
   );
 }
 
-function BackendPoolCard({ pool }: { pool: BackendPool }) {
+function BackendPoolCard({
+  pool,
+  managementMode = false,
+  onUpdate,
+  onDelete,
+  onRunHealthCheck,
+  onRunQuotaCheck
+}: {
+  pool: BackendPool;
+  managementMode?: boolean;
+  onUpdate?: (id: string, payload: UpdatePoolPayload) => Promise<void>;
+  onDelete?: (id: string) => Promise<void>;
+  onRunHealthCheck?: (id: string) => Promise<void>;
+  onRunQuotaCheck?: (id: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(pool.name);
+  const [baseUrl, setBaseUrl] = useState(pool.base_url);
+  const [quotaAlertThresholdHours, setQuotaAlertThresholdHours] = useState(String(pool.quota_alert_threshold_hours ?? 5));
+  const [credentialToken, setCredentialToken] = useState('');
+  const [credentialEmail, setCredentialEmail] = useState('');
+  const [credentialPassword, setCredentialPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [checkingHealth, setCheckingHealth] = useState(false);
+  const [checkingQuota, setCheckingQuota] = useState(false);
   const healthTime = pool.last_health_checked_at
     ? new Date(pool.last_health_checked_at).toLocaleString()
     : '待巡检';
   const quotaTime = pool.last_quota_checked_at
     ? new Date(pool.last_quota_checked_at).toLocaleString()
     : '待巡检';
+
+  useEffect(() => {
+    setEditing(false);
+  }, [managementMode]);
+
+  useEffect(() => {
+    setName(pool.name);
+    setBaseUrl(pool.base_url);
+    setQuotaAlertThresholdHours(String(pool.quota_alert_threshold_hours ?? 5));
+    setCredentialToken('');
+    setCredentialEmail('');
+    setCredentialPassword('');
+  }, [pool]);
+
+  async function handleSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!onUpdate) return;
+
+    const credential: Record<string, string> | undefined = pool.platform === 'new_api'
+      ? (credentialToken ? { kind: 'admin_token', token: credentialToken } : undefined)
+      : (credentialEmail || credentialPassword
+          ? { kind: 'login', email: credentialEmail, password: credentialPassword }
+          : undefined);
+    if (pool.platform === 'sub2api' && (credentialEmail || credentialPassword) && !(credentialEmail && credentialPassword)) {
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await onUpdate(pool.id, {
+        name,
+        base_url: baseUrl,
+        ...(credential ? { credential } : {}),
+        quota_alert_threshold_hours: Number(quotaAlertThresholdHours)
+      });
+      setEditing(false);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleRunHealthCheck() {
+    if (!onRunHealthCheck) return;
+
+    setCheckingHealth(true);
+    try {
+      await onRunHealthCheck(pool.id);
+    } finally {
+      setCheckingHealth(false);
+    }
+  }
+
+  async function handleRunQuotaCheck() {
+    if (!onRunQuotaCheck) return;
+
+    setCheckingQuota(true);
+    try {
+      await onRunQuotaCheck(pool.id);
+    } finally {
+      setCheckingQuota(false);
+    }
+  }
+
+  if (managementMode && editing) {
+    return (
+      <article className="item-card edit-card">
+        <form className="target-form" onSubmit={handleSave}>
+          <label>
+            <span>名称</span>
+            <input name="editPoolName" value={name} onChange={(event) => setName(event.target.value)} required />
+          </label>
+          <label>
+            <span>地址</span>
+            <input name="editPoolBaseUrl" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required />
+          </label>
+          <label>
+            <span>额度低于几小时告警</span>
+            <input
+              name="editPoolQuotaAlertThresholdHours"
+              type="number"
+              min="0.1"
+              step="0.1"
+              value={quotaAlertThresholdHours}
+              onChange={(event) => setQuotaAlertThresholdHours(event.target.value)}
+              required
+            />
+          </label>
+          {pool.platform === 'new_api' ? (
+            <label>
+              <span>更新管理 Token</span>
+              <input
+                name="editPoolAdminToken"
+                type="password"
+                value={credentialToken}
+                onChange={(event) => setCredentialToken(event.target.value)}
+                placeholder="留空则不修改"
+              />
+            </label>
+          ) : (
+            <div className="form-grid">
+              <label>
+                <span>更新邮箱</span>
+                <input
+                  name="editPoolEmail"
+                  value={credentialEmail}
+                  onChange={(event) => setCredentialEmail(event.target.value)}
+                  placeholder="留空则不修改"
+                />
+              </label>
+              <label>
+                <span>更新密码</span>
+                <input
+                  name="editPoolPassword"
+                  type="password"
+                  value={credentialPassword}
+                  onChange={(event) => setCredentialPassword(event.target.value)}
+                  placeholder="留空则不修改"
+                />
+              </label>
+            </div>
+          )}
+          <div className="management-actions">
+            <button className="submit-button" type="submit" disabled={submitting}>{submitting ? '保存中' : '保存修改'}</button>
+            <button className="secondary-button" type="button" onClick={() => setEditing(false)}>取消</button>
+          </div>
+        </form>
+      </article>
+    );
+  }
 
   return (
     <article className="item-card">
@@ -202,6 +562,20 @@ function BackendPoolCard({ pool }: { pool: BackendPool }) {
         <div>账号健康：{healthTime}</div>
         <div>额度巡检：{quotaTime}</div>
       </div>
+      <div className="check-actions">
+        <button className="wide-button check-button" type="button" onClick={() => void handleRunHealthCheck()} disabled={checkingHealth}>
+          {checkingHealth ? '巡检中' : '查健康'}
+        </button>
+        <button className="wide-button check-button" type="button" onClick={() => void handleRunQuotaCheck()} disabled={checkingQuota}>
+          {checkingQuota ? '巡检中' : '查额度'}
+        </button>
+      </div>
+      {managementMode && (
+        <div className="management-actions">
+          <button className="secondary-button" type="button" onClick={() => setEditing(true)}>编辑</button>
+          <button className="danger-button" type="button" onClick={() => void onDelete?.(pool.id)}>删除</button>
+        </div>
+      )}
     </article>
   );
 }
@@ -224,6 +598,34 @@ function SectionTitle({ title, hint }: { title: string; hint: string }) {
   );
 }
 
+function SectionHeader({
+  title,
+  hint,
+  managementMode,
+  onManagementModeChange
+}: {
+  title: string;
+  hint: string;
+  managementMode: boolean;
+  onManagementModeChange: (enabled: boolean) => void;
+}) {
+  return (
+    <div className="section-title section-header">
+      <div>
+        <h2>{title}</h2>
+        <span>{hint}</span>
+      </div>
+      <button
+        className={`manage-toggle ${managementMode ? 'active' : ''}`}
+        type="button"
+        onClick={() => onManagementModeChange(!managementMode)}
+      >
+        {managementMode ? '完成' : '管理'}
+      </button>
+    </div>
+  );
+}
+
 function EmptyState({ title, body }: { title: string; body: string }) {
   return (
     <article className="empty-card subtle">
@@ -239,6 +641,8 @@ function HomePage({
   upstreams,
   pools,
   realMode,
+  onUpdateUpstream,
+  onDeleteUpstream,
   onResolve,
   onSnooze,
   onRerun
@@ -248,6 +652,8 @@ function HomePage({
   upstreams: Array<UpstreamItem | BackendUpstream>;
   pools: PoolItem[] | BackendPool[];
   realMode: boolean;
+  onUpdateUpstream: (id: string, payload: UpdateUpstreamPayload) => Promise<void>;
+  onDeleteUpstream: (id: string) => Promise<void>;
   onResolve: (id: string) => void;
   onSnooze: (id: string) => void;
   onRerun: (id: string) => void;
@@ -283,7 +689,7 @@ function HomePage({
       {showUpstreamsFirst ? (
         <>
           <SectionTitle title="上游中转" hint={realMode ? '真实后端数据' : '预览数据'} />
-          <TargetList kind="upstreams" upstreams={upstreams} pools={pools} realMode={realMode} />
+          <TargetList kind="upstreams" upstreams={upstreams} pools={pools} realMode={realMode} onUpdateUpstream={onUpdateUpstream} onDeleteUpstream={onDeleteUpstream} />
           <SectionTitle title="号池快照" hint={realMode ? '真实后端数据' : '每 1.5 小时预测'} />
           <TargetList kind="pools" upstreams={upstreams} pools={realMode ? (pools as BackendPool[]).slice(0, 1) : (pools as PoolItem[]).slice(0, 1)} realMode={realMode} compact />
         </>
@@ -292,7 +698,7 @@ function HomePage({
           <SectionTitle title="号池快照" hint={realMode ? '真实后端数据' : '每 1.5 小时预测'} />
           <TargetList kind="pools" upstreams={upstreams} pools={pools} realMode={realMode} />
           <SectionTitle title="上游中转" hint={realMode ? '真实后端数据' : '余额低的优先处理'} />
-          <TargetList kind="upstreams" upstreams={upstreams.slice(0, 2)} pools={pools} realMode={realMode} compact />
+          <TargetList kind="upstreams" upstreams={upstreams.slice(0, 2)} pools={pools} realMode={realMode} compact onUpdateUpstream={onUpdateUpstream} onDeleteUpstream={onDeleteUpstream} />
         </>
       )}
     </>
@@ -304,18 +710,40 @@ function TargetList({
   upstreams,
   pools,
   realMode,
+  onUpdateUpstream,
+  onDeleteUpstream,
+  onRunUpstreamBalanceCheck,
+  onUpdatePool,
+  onDeletePool,
+  onRunPoolHealthCheck,
+  onRunPoolQuotaCheck,
   compact
 }: {
   kind: 'upstreams' | 'pools';
   upstreams: Array<UpstreamItem | BackendUpstream>;
   pools: PoolItem[] | BackendPool[];
   realMode: boolean;
+  onUpdateUpstream?: (id: string, payload: UpdateUpstreamPayload) => Promise<void>;
+  onDeleteUpstream?: (id: string) => Promise<void>;
+  onRunUpstreamBalanceCheck?: (id: string) => Promise<void>;
+  onUpdatePool?: (id: string, payload: UpdatePoolPayload) => Promise<void>;
+  onDeletePool?: (id: string) => Promise<void>;
+  onRunPoolHealthCheck?: (id: string) => Promise<void>;
+  onRunPoolQuotaCheck?: (id: string) => Promise<void>;
   compact?: boolean;
 }) {
   if (kind === 'upstreams') {
     return (
       <div className={`list ${compact ? 'compact-list' : ''}`}>
-        {upstreams.length ? upstreams.map((item) => <UpstreamCard key={item.id} upstream={item} />) : (
+        {upstreams.length ? upstreams.map((item) => (
+          <UpstreamCard
+            key={item.id}
+            upstream={item}
+            onUpdate={onUpdateUpstream}
+            onDelete={onDeleteUpstream}
+            onRunBalanceCheck={onRunUpstreamBalanceCheck}
+          />
+        )) : (
           <EmptyState title="还没有上游" body="配置真实后端后，可以在上游页添加外部中转。" />
         )}
       </div>
@@ -326,7 +754,16 @@ function TargetList({
     <div className={`list ${compact ? 'compact-list' : ''}`}>
       {pools.length ? pools.map((pool) => (
         realMode
-          ? <BackendPoolCard key={pool.id} pool={pool as BackendPool} />
+          ? (
+            <BackendPoolCard
+              key={pool.id}
+              pool={pool as BackendPool}
+              onUpdate={onUpdatePool}
+              onDelete={onDeletePool}
+              onRunHealthCheck={onRunPoolHealthCheck}
+              onRunQuotaCheck={onRunPoolQuotaCheck}
+            />
+          )
           : <PoolQuotaCard key={pool.id} pool={pool as PoolItem} />
       )) : (
         <EmptyState title="还没有中转站" body="配置真实后端后，可以在号池页添加自己的中转站。" />
@@ -338,11 +775,13 @@ function TargetList({
 function UpstreamForm({
   settings,
   canSubmit,
-  onCreated
+  onCreated,
+  onError
 }: {
   settings: ApiSettings;
   canSubmit: boolean;
   onCreated: (message: string) => Promise<void>;
+  onError: (message: string) => void;
 }) {
   const [platform, setPlatform] = useState<Platform>('new_api');
   const [name, setName] = useState('');
@@ -389,6 +828,8 @@ function UpstreamForm({
       setPassword('');
       setAdminToken('');
       await onCreated('上游已保存，凭证不会在页面回显');
+    } catch (error) {
+      onError(error instanceof Error ? `上游保存失败：${error.message}` : '上游保存失败');
     } finally {
       setSubmitting(false);
     }
@@ -473,11 +914,13 @@ function UpstreamForm({
 function PoolForm({
   settings,
   canSubmit,
-  onCreated
+  onCreated,
+  onError
 }: {
   settings: ApiSettings;
   canSubmit: boolean;
   onCreated: (message: string) => Promise<void>;
+  onError: (message: string) => void;
 }) {
   const [platform, setPlatform] = useState<Platform>('sub2api');
   const [name, setName] = useState('');
@@ -490,7 +933,7 @@ function PoolForm({
 
   const credentialValid = platform === 'new_api'
     ? Boolean(adminToken)
-    : Boolean(adminToken || (email && password));
+    : Boolean(email && password);
 
   const formValid = Boolean(name && baseUrl && credentialValid);
 
@@ -498,7 +941,7 @@ function PoolForm({
     event.preventDefault();
     if (!canSubmit || !formValid) return;
 
-    const credential: Record<string, string> = (platform === 'sub2api' && email && password && !adminToken)
+    const credential: Record<string, string> = platform === 'sub2api'
       ? { kind: 'login', email, password }
       : { kind: 'admin_token', token: adminToken };
     const payload: CreatePoolPayload = {
@@ -515,6 +958,8 @@ function PoolForm({
       setPassword('');
       setAdminToken('');
       await onCreated('中转站已保存，凭证不会在页面回显');
+    } catch (error) {
+      onError(error instanceof Error ? `中转站保存失败：${error.message}` : '中转站保存失败');
     } finally {
       setSubmitting(false);
     }
@@ -544,18 +989,14 @@ function PoolForm({
         </label>
         {platform === 'sub2api' ? (
           <>
-            <label>
-              <span>管理 Token</span>
-              <input name="poolAdminToken" type="password" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} placeholder="优先填写后台 token" />
-            </label>
             <div className="form-grid">
               <label>
                 <span>邮箱</span>
-                <input name="poolEmail" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="可选" />
+                <input name="poolEmail" value={email} onChange={(event) => setEmail(event.target.value)} required />
               </label>
               <label>
                 <span>密码</span>
-                <input name="poolPassword" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="可选" />
+                <input name="poolPassword" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
               </label>
             </div>
           </>
@@ -674,6 +1115,14 @@ function AppContent({
   onSettingsSave,
   onDefaultBusinessViewChange,
   onCreated,
+  onError,
+  onUpdateUpstream,
+  onDeleteUpstream,
+  onRunUpstreamBalanceCheck,
+  onUpdatePool,
+  onDeletePool,
+  onRunPoolHealthCheck,
+  onRunPoolQuotaCheck,
   onResolve,
   onSnooze,
   onRerun
@@ -688,19 +1137,59 @@ function AppContent({
   onSettingsSave: (settings: ApiSettings) => void;
   onDefaultBusinessViewChange: (view: DefaultBusinessView) => void;
   onCreated: (message: string) => Promise<void>;
+  onError: (message: string) => void;
+  onUpdateUpstream: (id: string, payload: UpdateUpstreamPayload) => Promise<void>;
+  onDeleteUpstream: (id: string) => Promise<void>;
+  onRunUpstreamBalanceCheck: (id: string) => Promise<void>;
+  onUpdatePool: (id: string, payload: UpdatePoolPayload) => Promise<void>;
+  onDeletePool: (id: string) => Promise<void>;
+  onRunPoolHealthCheck: (id: string) => Promise<void>;
+  onRunPoolQuotaCheck: (id: string) => Promise<void>;
   onResolve: (id: string) => void;
   onSnooze: (id: string) => void;
   onRerun: (id: string) => void;
 }) {
   const canSubmit = hasApiCredentials(settings);
+  const [showUpstreamForm, setShowUpstreamForm] = useState(false);
+  const [showPoolForm, setShowPoolForm] = useState(false);
+  const [manageUpstreams, setManageUpstreams] = useState(false);
+  const [managePools, setManagePools] = useState(false);
+
+  async function handleUpstreamCreated(message: string) {
+    await onCreated(message);
+    setShowUpstreamForm(false);
+  }
+
+  async function handlePoolCreated(message: string) {
+    await onCreated(message);
+    setShowPoolForm(false);
+  }
 
   if (tab === 'upstreams') {
     return (
       <>
-        <SectionTitle title="上游续费" hint="余额低的优先" />
+        <SectionHeader
+          title="上游续费"
+          hint="余额低的优先"
+          managementMode={manageUpstreams}
+          onManagementModeChange={setManageUpstreams}
+        />
         <div className="list">
-          <UpstreamForm settings={settings} canSubmit={canSubmit} onCreated={onCreated} />
-          {upstreams.length ? upstreams.map((item) => <UpstreamCard key={item.id} upstream={item} />) : (
+          {showUpstreamForm ? (
+            <UpstreamForm settings={settings} canSubmit={canSubmit} onCreated={handleUpstreamCreated} onError={onError} />
+          ) : (
+            <button className="fold-button" type="button" onClick={() => setShowUpstreamForm(true)}>添加上游</button>
+          )}
+          {upstreams.length ? upstreams.map((item) => (
+            <UpstreamCard
+              key={item.id}
+              upstream={item}
+              managementMode={manageUpstreams}
+              onUpdate={onUpdateUpstream}
+              onDelete={onDeleteUpstream}
+              onRunBalanceCheck={onRunUpstreamBalanceCheck}
+            />
+          )) : (
             <EmptyState title="还没有上游" body="保存第一个外部中转后，后端调度器会按阈值巡检余额。" />
           )}
         </div>
@@ -711,12 +1200,31 @@ function AppContent({
   if (tab === 'pools') {
     return (
       <>
-        <SectionTitle title="号池巡检" hint="健康 10 分钟，额度 1.5 小时" />
+        <SectionHeader
+          title="号池巡检"
+          hint="健康 10 分钟，额度 1.5 小时"
+          managementMode={managePools}
+          onManagementModeChange={setManagePools}
+        />
         <div className="list">
-          <PoolForm settings={settings} canSubmit={canSubmit} onCreated={onCreated} />
+          {showPoolForm ? (
+            <PoolForm settings={settings} canSubmit={canSubmit} onCreated={handlePoolCreated} onError={onError} />
+          ) : (
+            <button className="fold-button" type="button" onClick={() => setShowPoolForm(true)}>添加中转站</button>
+          )}
           {pools.length ? pools.map((pool) => (
             realMode
-              ? <BackendPoolCard key={pool.id} pool={pool as BackendPool} />
+              ? (
+                <BackendPoolCard
+                  key={pool.id}
+                  pool={pool as BackendPool}
+                  managementMode={managePools}
+                  onUpdate={onUpdatePool}
+                  onDelete={onDeletePool}
+                  onRunHealthCheck={onRunPoolHealthCheck}
+                  onRunQuotaCheck={onRunPoolQuotaCheck}
+                />
+              )
               : <PoolQuotaCard key={pool.id} pool={pool as PoolItem} />
           )) : (
             <EmptyState title="还没有中转站" body="保存自己的中转站后，后端会记录健康和额度巡检结果。" />
@@ -763,6 +1271,8 @@ function AppContent({
       upstreams={upstreams}
       pools={pools}
       realMode={realMode}
+      onUpdateUpstream={onUpdateUpstream}
+      onDeleteUpstream={onDeleteUpstream}
       onResolve={onResolve}
       onSnooze={onSnooze}
       onRerun={onRerun}
@@ -845,6 +1355,80 @@ export default function App() {
     await refreshTargets(apiSettings, message);
   }
 
+  async function handleUpdateUpstream(id: string, payload: UpdateUpstreamPayload) {
+    try {
+      await updateUpstream(apiSettings, id, payload);
+      await refreshTargets(apiSettings, '上游已更新');
+    } catch (error) {
+      setToast(error instanceof Error ? `上游更新失败：${error.message}` : '上游更新失败');
+    }
+  }
+
+  async function handleDeleteUpstream(id: string) {
+    if (!window.confirm('确定删除这个上游吗？')) return;
+    try {
+      await deleteUpstream(apiSettings, id);
+      await refreshTargets(apiSettings, '上游已删除');
+    } catch (error) {
+      setToast(error instanceof Error ? `上游删除失败：${error.message}` : '上游删除失败');
+    }
+  }
+
+  async function handleRunUpstreamBalanceCheck(id: string) {
+    try {
+      const result = await runUpstreamBalanceCheck(apiSettings, id);
+      const message = result.result === 'ok'
+        ? '上游余额巡检完成'
+        : `上游余额巡检失败：${result.message || result.result}`;
+      await refreshTargets(apiSettings, message);
+    } catch (error) {
+      setToast(error instanceof Error ? `上游余额巡检失败：${error.message}` : '上游余额巡检失败');
+    }
+  }
+
+  async function handleUpdatePool(id: string, payload: UpdatePoolPayload) {
+    try {
+      await updatePool(apiSettings, id, payload);
+      await refreshTargets(apiSettings, '中转站已更新');
+    } catch (error) {
+      setToast(error instanceof Error ? `中转站更新失败：${error.message}` : '中转站更新失败');
+    }
+  }
+
+  async function handleDeletePool(id: string) {
+    if (!window.confirm('确定删除这个中转站吗？')) return;
+    try {
+      await deletePool(apiSettings, id);
+      await refreshTargets(apiSettings, '中转站已删除');
+    } catch (error) {
+      setToast(error instanceof Error ? `中转站删除失败：${error.message}` : '中转站删除失败');
+    }
+  }
+
+  async function handleRunPoolHealthCheck(id: string) {
+    try {
+      const result = await runPoolHealthCheck(apiSettings, id);
+      const message = result.result === 'ok'
+        ? '号池健康巡检完成'
+        : `号池健康巡检失败：${result.message || result.result}`;
+      await refreshTargets(apiSettings, message);
+    } catch (error) {
+      setToast(error instanceof Error ? `号池健康巡检失败：${error.message}` : '号池健康巡检失败');
+    }
+  }
+
+  async function handleRunPoolQuotaCheck(id: string) {
+    try {
+      const result = await runPoolQuotaCheck(apiSettings, id);
+      const message = result.result === 'ok'
+        ? '号池额度巡检完成'
+        : `号池额度巡检失败：${result.message || result.result}`;
+      await refreshTargets(apiSettings, message);
+    } catch (error) {
+      setToast(error instanceof Error ? `号池额度巡检失败：${error.message}` : '号池额度巡检失败');
+    }
+  }
+
   return (
     <>
       <main className="app">
@@ -863,6 +1447,14 @@ export default function App() {
             setToast(view === 'upstreams' ? '默认首页已切到上游中转' : '默认首页已切到号池巡检');
           }}
           onCreated={handleCreated}
+          onError={setToast}
+          onUpdateUpstream={handleUpdateUpstream}
+          onDeleteUpstream={handleDeleteUpstream}
+          onRunUpstreamBalanceCheck={handleRunUpstreamBalanceCheck}
+          onUpdatePool={handleUpdatePool}
+          onDeletePool={handleDeletePool}
+          onRunPoolHealthCheck={handleRunPoolHealthCheck}
+          onRunPoolQuotaCheck={handleRunPoolQuotaCheck}
           onResolve={(id) => updateAlert(id, { acknowledged: true }, '已标记处理，后续恢复时会通知')}
           onSnooze={(id) => updateAlert(id, { snoozed: true }, '已暂停提醒 6 小时')}
           onRerun={(id) => updateAlert(id, {}, '已发起复查，结果会写入事件流')}

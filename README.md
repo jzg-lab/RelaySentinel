@@ -152,8 +152,9 @@ curl -sS -X POST http://127.0.0.1:8000/api/pools \
     "platform": "sub2api",
     "base_url": "https://self.example.com",
     "credential": {
-      "kind": "admin_token",
-      "token": "secret-admin-token"
+      "kind": "login",
+      "email": "owner@example.com",
+      "password": "secret-password"
     },
     "quota_alert_threshold_hours": 5
   }'

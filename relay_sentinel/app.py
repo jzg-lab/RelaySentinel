@@ -420,7 +420,7 @@ def create_app(settings: Optional[Dict[str, Any]] = None) -> FastAPI:
     @app.patch("/api/upstreams/{upstream_id}")
     async def patch_upstream(upstream_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         current = _get_upstream_or_404(store, upstream_id)
-        _validate_upstream(payload, partial=True)
+        _validate_upstream({**current, **payload}, partial=True)
         updated = store.update_upstream(upstream_id, payload)
         if updated is None:
             raise HTTPException(status_code=404, detail="Upstream not found")
@@ -459,7 +459,7 @@ def create_app(settings: Optional[Dict[str, Any]] = None) -> FastAPI:
     @app.patch("/api/pools/{pool_id}")
     async def patch_pool(pool_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         current = _get_pool_or_404(store, pool_id)
-        _validate_pool(payload, partial=True)
+        _validate_pool({**current, **payload}, partial=True)
         updated = store.update_pool(pool_id, payload)
         if updated is None:
             raise HTTPException(status_code=404, detail="Pool not found")
@@ -641,6 +641,7 @@ def _validate_upstream(payload: Dict[str, Any], *, partial: bool) -> None:
             _invalid("renewal.kind must be manual, contact_owner, or payment_link.")
     if "check_interval_seconds" in payload and int(payload.get("check_interval_seconds", 1800)) <= 0:
         _invalid("check_interval_seconds must be greater than 0.")
+    _validate_target_credential(payload, target_label="Upstream", partial=partial)
 
 
 def _validate_pool(payload: Dict[str, Any], *, partial: bool) -> None:
@@ -656,6 +657,7 @@ def _validate_pool(payload: Dict[str, Any], *, partial: bool) -> None:
         _invalid("health_check_interval_seconds must be greater than 0.")
     if "quota_check_interval_seconds" in payload and int(payload.get("quota_check_interval_seconds", 5400)) <= 0:
         _invalid("quota_check_interval_seconds must be greater than 0.")
+    _validate_target_credential(payload, target_label="Pool", partial=partial)
 
 
 def _validate_quota_source(payload: Dict[str, Any]) -> None:
@@ -663,6 +665,25 @@ def _validate_quota_source(payload: Dict[str, Any]) -> None:
     if payload.get("kind") not in ALLOWED_QUOTA_SOURCES:
         _invalid("quota source kind must be cliproxyapi or cpa.")
     _validate_http_url(payload.get("base_url"))
+
+
+def _validate_target_credential(payload: Dict[str, Any], *, target_label: str, partial: bool) -> None:
+    platform = payload.get("platform")
+    credential = payload.get("credential")
+    if platform is None or credential is None:
+        return
+
+    if platform == "new_api":
+        token = credential.get("token") or credential.get("admin_token")
+        if not token:
+            _invalid(f"{target_label} new_api requires an admin token credential.")
+        return
+
+    if platform == "sub2api":
+        email = credential.get("email")
+        password = credential.get("password")
+        if credential.get("token") or credential.get("admin_token") or not email or not password:
+            _invalid(f"{target_label} sub2api requires email and password credentials, not an admin token.")
 
 
 def _validate_notification_channel(payload: Dict[str, Any], *, partial: bool) -> None:
@@ -847,14 +868,11 @@ def _default_pool_checker_factory(pool: Dict[str, Any], credential: Dict[str, An
             raise ValueError("new_api pool requires an admin token credential")
         return NewAPIAdapter(base_url=pool["base_url"], admin_token=token)
     if platform == "sub2api":
-        token = credential.get("token") or credential.get("admin_token")
-        if token:
-            return NewAPIAdapter(base_url=pool["base_url"], admin_token=token)
         email = credential.get("email")
         password = credential.get("password")
         if email and password:
             return Sub2APIAdapter(base_url=pool["base_url"], email=email, password=password)
-        raise ValueError("sub2api pool requires admin token or email+password credentials")
+        raise ValueError("sub2api pool requires email and password credentials")
     raise ValueError("unsupported pool platform")
 
 

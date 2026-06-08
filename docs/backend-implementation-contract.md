@@ -198,8 +198,9 @@ relay_sentinel/
   "platform": "sub2api",
   "base_url": "https://self.example.com",
   "credential": {
-    "kind": "admin_token",
-    "token": "secret-admin-token"
+    "kind": "login",
+    "email": "owner@example.com",
+    "password": "secret-password"
   },
   "health_check_interval_seconds": 600,
   "quota_check_interval_seconds": 5400,

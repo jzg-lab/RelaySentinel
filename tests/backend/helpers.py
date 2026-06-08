@@ -23,7 +23,11 @@ def pool_payload(**overrides):
         "name": "自营 Sub2API 号池",
         "platform": "sub2api",
         "base_url": "https://self.example.com",
-        "credential": {"kind": "admin_token", "token": "secret-admin-token"},
+        "credential": {
+            "kind": "login",
+            "email": "owner@example.com",
+            "password": "secret-password",
+        },
         "quota_alert_threshold_hours": 5,
     }
     payload.update(overrides)

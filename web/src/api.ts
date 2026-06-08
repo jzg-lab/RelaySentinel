@@ -94,6 +94,41 @@ export interface CreatePoolPayload {
   quota_alert_threshold_hours: number;
 }
 
+export interface UpdateUpstreamPayload {
+  name: string;
+  base_url: string;
+  credential?: Record<string, string>;
+  threshold: {
+    metric: 'balance';
+    operator: 'lt';
+    value: number;
+    unit: string;
+  };
+  renewal: {
+    kind: RenewalKind;
+    instructions?: string;
+    label?: string;
+    url?: string;
+  };
+}
+
+export interface UpdatePoolPayload {
+  name: string;
+  base_url: string;
+  credential?: Record<string, string>;
+  quota_alert_threshold_hours: number;
+}
+
+export interface ManualCheckResult {
+  target_id: string;
+  kind: 'upstream' | 'pool';
+  check_type: 'balance' | 'health' | 'quota';
+  result: 'ok' | 'failed' | 'unsupported' | string;
+  message?: string;
+  status?: string;
+  checked_at?: string;
+}
+
 const STORAGE_KEY = 'relay-sentinel-api-settings';
 const DEFAULT_SETTINGS: ApiSettings = {
   baseUrl: 'http://127.0.0.1:8000',
@@ -138,11 +173,45 @@ export async function createUpstream(settings: ApiSettings, payload: CreateUpstr
   });
 }
 
+export async function updateUpstream(settings: ApiSettings, id: string, payload: UpdateUpstreamPayload): Promise<BackendUpstream> {
+  return request<BackendUpstream>(settings, `/api/upstreams/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteUpstream(settings: ApiSettings, id: string): Promise<void> {
+  await request<void>(settings, `/api/upstreams/${id}`, { method: 'DELETE' });
+}
+
+export async function runUpstreamBalanceCheck(settings: ApiSettings, id: string): Promise<ManualCheckResult> {
+  return request<ManualCheckResult>(settings, `/api/upstreams/${id}/run-balance-check`, { method: 'POST' });
+}
+
 export async function createPool(settings: ApiSettings, payload: CreatePoolPayload): Promise<BackendPool> {
   return request<BackendPool>(settings, '/api/pools', {
     method: 'POST',
     body: JSON.stringify(payload)
   });
+}
+
+export async function updatePool(settings: ApiSettings, id: string, payload: UpdatePoolPayload): Promise<BackendPool> {
+  return request<BackendPool>(settings, `/api/pools/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deletePool(settings: ApiSettings, id: string): Promise<void> {
+  await request<void>(settings, `/api/pools/${id}`, { method: 'DELETE' });
+}
+
+export async function runPoolHealthCheck(settings: ApiSettings, id: string): Promise<ManualCheckResult> {
+  return request<ManualCheckResult>(settings, `/api/pools/${id}/run-health-check`, { method: 'POST' });
+}
+
+export async function runPoolQuotaCheck(settings: ApiSettings, id: string): Promise<ManualCheckResult> {
+  return request<ManualCheckResult>(settings, `/api/pools/${id}/run-quota-check`, { method: 'POST' });
 }
 
 function normalizeSettings(settings: ApiSettings): ApiSettings {
@@ -174,5 +243,6 @@ async function request<T>(settings: ApiSettings, path: string, init: RequestInit
     throw new Error(detail);
   }
 
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }

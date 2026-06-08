@@ -267,13 +267,37 @@ h1 {
   margin: 18px 0 10px;
 }
 
+.section-header {
+  align-items: flex-start;
+}
+
 .section-title h2 {
   margin: 0;
   font-size: 17px;
 }
 
 .section-title span {
+  display: block;
+  margin-top: 3px;
   font-size: 12px;
+}
+
+.manage-toggle {
+  min-width: 58px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: #0a84ff;
+  background: rgba(10, 132, 255, 0.10);
+  border: 1px solid rgba(10, 132, 255, 0.16);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.manage-toggle.active {
+  color: #ffffff;
+  background: #0a84ff;
 }
 
 .list {
@@ -359,6 +383,42 @@ h1 {
   background: #0a84ff;
 }
 
+.fold-button {
+  min-height: 46px;
+  border-radius: 8px;
+  color: #0a84ff;
+  background: rgba(10, 132, 255, 0.10);
+  border: 1px solid rgba(10, 132, 255, 0.16);
+  font-weight: 600;
+}
+
+.secondary-button,
+.danger-button {
+  min-height: 40px;
+  border-radius: 8px;
+  background: #eef2f7;
+}
+
+.secondary-button {
+  color: #0f172a;
+}
+
+.danger-button {
+  color: #b42318;
+  background: rgba(255, 69, 58, 0.10);
+}
+
+.management-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.edit-card {
+  display: block;
+}
+
 .choice-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -401,6 +461,56 @@ h1 {
   border-radius: 15px;
   color: #0a84ff;
   background: rgba(10, 132, 255, 0.10);
+}
+
+.balance-metric {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  min-height: 58px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f6f8fb;
+  border: 1px solid #edf1f7;
+}
+
+.balance-metric span {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.balance-metric strong {
+  min-width: 0;
+  color: #111827;
+  font-size: 24px;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.balance-metric.failed {
+  background: rgba(255, 69, 58, 0.08);
+  border-color: rgba(255, 69, 58, 0.16);
+}
+
+.balance-metric.failed strong {
+  color: #991b1b;
+}
+
+.check-button {
+  border-radius: 8px;
+}
+
+.check-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.check-actions .wide-button {
+  grid-column: auto;
 }
 
 .wide-note {
